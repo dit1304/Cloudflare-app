@@ -3,9 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
 [vars]
-TEMP_EMAIL_DOMAIN = "mail.domainmu.com"
+TEMP_EMAIL_DOMAIN = "zerostore.tech"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "temp-email-db"
-database_id = "GANTI_DENGAN_DATABASE_ID_MU"
+database_id = "fc2573ff-11f7-478f-a67e-591d6fc853c8"
