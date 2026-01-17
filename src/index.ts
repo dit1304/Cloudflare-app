@@ -1,11 +1,10 @@
 import { Hono } from "hono";
-import OpenAI from "openai";
 
 type Bindings = {
   DB: D1Database;
   TELEGRAM_BOT_TOKEN: string;
-  OPENAI_API_KEY: string;
   TEMP_EMAIL_DOMAIN: string;
+  ADMIN_USER_ID: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -22,10 +21,11 @@ app.post("/webhooks/telegram", async (c) => {
   const telegramUserId = String(payload.message.from.id);
   const telegramUsername = payload.message.from.username || "";
   const chatId = payload.message.chat.id;
-  const userMessage = payload.message.text;
+  const userMessage = payload.message.text.trim();
 
   try {
-    const response = await processWithAgent(c.env, telegramUserId, telegramUsername, userMessage);
+    await ensureUser(c.env.DB, telegramUserId, telegramUsername);
+    const response = await processCommand(c.env, telegramUserId, userMessage);
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, response);
   } catch (error) {
     console.error("Error processing message:", error);
@@ -36,12 +36,6 @@ app.post("/webhooks/telegram", async (c) => {
     );
   }
 
-  return c.text("OK", 200);
-});
-
-// ============ EMAIL INCOMING WEBHOOK ============
-app.post("/webhooks/email", async (c) => {
-  console.log("📧 Email webhook received");
   return c.text("OK", 200);
 });
 
@@ -78,7 +72,7 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
 👤 <b>Dari:</b> ${message.from}
 📋 <b>Subjek:</b> ${subject}
 
-Ketik "cek inbox ${toAddress.split("@")[0]}" untuk membaca.`;
+Ketik <code>/mails ${toAddress.split("@")[0]}</code> untuk membaca.`;
 
   const botToken = env.TELEGRAM_BOT_TOKEN;
   if (botToken) {
@@ -86,186 +80,307 @@ Ketik "cek inbox ${toAddress.split("@")[0]}" untuk membaca.`;
   }
 }
 
-// ============ AI AGENT ============
-async function processWithAgent(
+// ============ COMMAND PROCESSOR ============
+async function processCommand(
   env: Bindings,
   telegramUserId: string,
-  telegramUsername: string,
-  userMessage: string
+  message: string
 ): Promise<string> {
-  console.log("🤖 Processing with agent:", { telegramUserId, userMessage });
+  console.log("🤖 Processing command:", { telegramUserId, message });
 
-  await ensureUser(env.DB, telegramUserId, telegramUsername);
+  const parts = message.split(/\s+/);
+  const command = parts[0].toLowerCase();
+  const arg = parts.slice(1).join(" ").trim();
 
-  const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  const isAdmin = telegramUserId === env.ADMIN_USER_ID;
 
-  const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
-    {
-      type: "function",
-      function: {
-        name: "createEmail",
-        description: "Membuat alamat email temporary baru untuk user",
-        parameters: {
-          type: "object",
-          properties: {
-            customName: {
-              type: "string",
-              description: "Nama custom untuk email (opsional). Jika tidak ada, akan generate random.",
-            },
-          },
-        },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "listEmails",
-        description: "Menampilkan semua alamat email yang dimiliki user",
-        parameters: { type: "object", properties: {} },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "checkInbox",
-        description: "Melihat pesan masuk di email tertentu",
-        parameters: {
-          type: "object",
-          properties: {
-            emailIdentifier: {
-              type: "string",
-              description: "Alamat email lengkap atau local part saja",
-            },
-          },
-          required: ["emailIdentifier"],
-        },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "getEmailDetail",
-        description: "Membaca isi lengkap sebuah email",
-        parameters: {
-          type: "object",
-          properties: {
-            messageId: {
-              type: "number",
-              description: "ID pesan email yang ingin dibaca",
-            },
-          },
-          required: ["messageId"],
-        },
-      },
-    },
-    {
-      type: "function",
-      function: {
-        name: "deleteEmail",
-        description: "Menghapus alamat email beserta semua pesannya",
-        parameters: {
-          type: "object",
-          properties: {
-            emailIdentifier: {
-              type: "string",
-              description: "Alamat email lengkap atau local part yang ingin dihapus",
-            },
-          },
-          required: ["emailIdentifier"],
-        },
-      },
-    },
-  ];
+  switch (command) {
+    case "/start":
+    case "/help":
+      return getHelpMessage(env.TEMP_EMAIL_DOMAIN);
 
-  const systemPrompt = `Kamu adalah bot Telegram untuk layanan Temporary Email dalam Bahasa Indonesia.
+    case "/create":
+      return await handleCreate(env, telegramUserId, arg);
 
-KEMAMPUAN:
-- Buat email temporary baru (createEmail)
-- Lihat daftar email (listEmails)
-- Cek inbox email (checkInbox)
-- Baca detail email (getEmailDetail)
-- Hapus email (deleteEmail)
+    case "/mails":
+    case "/inbox":
+      return await handleMails(env, telegramUserId, arg);
 
-ATURAN:
-- Selalu gunakan Bahasa Indonesia
-- Gunakan emoji untuk mempercantik respons
-- Format respons agar mudah dibaca
-- Jika user minta buat email, langsung panggil createEmail
-- Domain email: ${env.TEMP_EMAIL_DOMAIN}
+    case "/read":
+      return await handleRead(env, telegramUserId, arg);
 
-Konteks user:
-- Telegram User ID: ${telegramUserId}
-- Username: ${telegramUsername || "tidak tersedia"}`;
+    case "/list":
+      if (!isAdmin) {
+        return `⛔ Perintah ini hanya untuk admin.`;
+      }
+      return await handleList(env, telegramUserId);
 
-  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: userMessage },
-  ];
+    case "/delete":
+      if (!isAdmin) {
+        return `⛔ Perintah ini hanya untuk admin.`;
+      }
+      return await handleDelete(env, telegramUserId, arg);
 
-  let response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages,
-    tools,
-    tool_choice: "auto",
-  });
-
-  let maxSteps = 5;
-  while (response.choices[0].message.tool_calls && maxSteps > 0) {
-    const toolCalls = response.choices[0].message.tool_calls;
-    messages.push(response.choices[0].message);
-
-    for (const toolCall of toolCalls) {
-      const result = await executeTool(
-        env,
-        telegramUserId,
-        toolCall.function.name,
-        JSON.parse(toolCall.function.arguments || "{}")
-      );
-      messages.push({
-        role: "tool",
-        tool_call_id: toolCall.id,
-        content: JSON.stringify(result),
-      });
-    }
-
-    response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages,
-      tools,
-      tool_choice: "auto",
-    });
-    maxSteps--;
-  }
-
-  return response.choices[0].message.content || "Maaf, saya tidak bisa memproses permintaan ini.";
-}
-
-// ============ TOOL EXECUTOR ============
-async function executeTool(
-  env: Bindings,
-  telegramUserId: string,
-  toolName: string,
-  args: Record<string, any>
-): Promise<any> {
-  console.log(`🔧 Executing tool: ${toolName}`, args);
-
-  switch (toolName) {
-    case "createEmail":
-      return await createEmail(env, telegramUserId, args.customName);
-    case "listEmails":
-      return await listEmails(env, telegramUserId);
-    case "checkInbox":
-      return await checkInbox(env, telegramUserId, args.emailIdentifier);
-    case "getEmailDetail":
-      return await getEmailDetail(env, telegramUserId, args.messageId);
-    case "deleteEmail":
-      return await deleteEmail(env, telegramUserId, args.emailIdentifier);
     default:
-      return { error: "Tool tidak dikenal" };
+      return `❓ Perintah tidak dikenali.
+
+Ketik /start untuk melihat panduan.`;
   }
 }
 
-// ============ TOOLS IMPLEMENTATION ============
+// ============ COMMAND HANDLERS ============
+function getHelpMessage(domain: string): string {
+  return `🎉 <b>Selamat datang di Temp Email Bot!</b>
+
+Bot ini membantu kamu membuat email temporary untuk menerima email tanpa menggunakan email asli.
+
+📋 <b>Cara Pakai:</b>
+
+📧 <b>/create</b> <code>nama</code>
+Buat email baru. Contoh:
+<code>/create tokoku</code>
+→ Membuat <code>tokoku@${domain}</code>
+
+📬 <b>/mails</b> <code>nama</code>
+Cek inbox email. Contoh:
+<code>/mails tokoku</code>
+
+📖 <b>/read</b> <code>id</code>
+Baca isi email. Contoh:
+<code>/read 5</code>
+
+━━━━━━━━━━━━━━━
+💡 <b>Tips:</b> Gunakan email temporary untuk daftar akun, verifikasi, atau tes!`;
+}
+
+async function handleCreate(env: Bindings, telegramUserId: string, name: string): Promise<string> {
+  if (!name) {
+    return `⚠️ Masukkan nama untuk email.
+
+Contoh: <code>/create tokoku</code>
+→ Akan membuat <code>tokoku@${env.TEMP_EMAIL_DOMAIN}</code>`;
+  }
+
+  const localPart = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  
+  if (localPart.length < 3) {
+    return `⚠️ Nama email minimal 3 karakter (huruf dan angka saja).`;
+  }
+
+  if (localPart.length > 30) {
+    return `⚠️ Nama email maksimal 30 karakter.`;
+  }
+
+  const emailAddress = `${localPart}@${env.TEMP_EMAIL_DOMAIN}`;
+
+  const existing = await env.DB.prepare("SELECT id FROM emails WHERE email_address = ?")
+    .bind(emailAddress)
+    .first();
+
+  if (existing) {
+    return `⚠️ Email <code>${emailAddress}</code> sudah digunakan.
+
+Coba nama lain, contoh: <code>/create ${localPart}123</code>`;
+  }
+
+  const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    return `❌ Error: User tidak ditemukan.`;
+  }
+
+  await env.DB.prepare("INSERT INTO emails (user_id, email_address, local_part) VALUES (?, ?, ?)")
+    .bind(userId, emailAddress, localPart)
+    .run();
+
+  return `✅ <b>Email berhasil dibuat!</b>
+
+📧 <code>${emailAddress}</code>
+
+Gunakan alamat ini untuk menerima email. Ketika ada email masuk, kamu akan mendapat notifikasi di sini.
+
+📬 Cek inbox: <code>/mails ${localPart}</code>`;
+}
+
+async function handleMails(env: Bindings, telegramUserId: string, identifier: string): Promise<string> {
+  if (!identifier) {
+    return `⚠️ Masukkan nama email yang ingin dicek.
+
+Contoh: <code>/mails tokoku</code>
+
+📋 Lihat semua email kamu: <code>/list</code>`;
+  }
+
+  const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    return `❌ Error: User tidak ditemukan.`;
+  }
+
+  const emailAddress = identifier.includes("@")
+    ? identifier.toLowerCase()
+    : `${identifier.toLowerCase()}@${env.TEMP_EMAIL_DOMAIN}`;
+
+  const email = await env.DB.prepare(
+    "SELECT id, email_address FROM emails WHERE user_id = ? AND LOWER(email_address) = ? AND is_active = 1"
+  )
+    .bind(userId, emailAddress)
+    .first<{ id: number; email_address: string }>();
+
+  if (!email) {
+    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan atau bukan milik kamu.
+
+📋 Lihat semua email kamu: <code>/list</code>`;
+  }
+
+  const result = await env.DB.prepare(
+    `SELECT id, sender, subject, is_read, received_at FROM inbox 
+     WHERE email_id = ? ORDER BY received_at DESC LIMIT 20`
+  )
+    .bind(email.id)
+    .all();
+
+  if (!result.results || result.results.length === 0) {
+    return `📭 <b>Inbox kosong</b>
+
+📧 <code>${email.email_address}</code>
+
+Belum ada email masuk. Gunakan alamat di atas untuk menerima email.`;
+  }
+
+  let response = `📬 <b>Inbox: ${email.email_address}</b>
+
+`;
+
+  for (const msg of result.results as any[]) {
+    const status = msg.is_read ? "📖" : "📩";
+    const subject = msg.subject || "(Tanpa subjek)";
+    response += `${status} <b>ID ${msg.id}</b>
+👤 ${msg.sender}
+📋 ${subject}
+⏰ ${msg.received_at}
+
+`;
+  }
+
+  response += `━━━━━━━━━━━━━━━
+📖 Baca email: <code>/read ID</code>
+Contoh: <code>/read ${(result.results[0] as any).id}</code>`;
+
+  return response;
+}
+
+async function handleRead(env: Bindings, telegramUserId: string, messageId: string): Promise<string> {
+  if (!messageId || isNaN(parseInt(messageId))) {
+    return `⚠️ Masukkan ID email yang ingin dibaca.
+
+Contoh: <code>/read 5</code>`;
+  }
+
+  const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    return `❌ Error: User tidak ditemukan.`;
+  }
+
+  const msg = await env.DB.prepare(
+    `SELECT i.*, e.email_address FROM inbox i 
+     JOIN emails e ON i.email_id = e.id 
+     WHERE i.id = ? AND e.user_id = ?`
+  )
+    .bind(parseInt(messageId), userId)
+    .first<{ id: number; sender: string; subject: string; body: string; email_address: string; received_at: string }>();
+
+  if (!msg) {
+    return `⚠️ Email dengan ID ${messageId} tidak ditemukan atau bukan milik kamu.`;
+  }
+
+  await env.DB.prepare("UPDATE inbox SET is_read = 1 WHERE id = ?").bind(parseInt(messageId)).run();
+
+  const body = msg.body?.substring(0, 3000) || "(Tidak ada isi)";
+
+  return `📧 <b>Email #${msg.id}</b>
+
+📬 <b>Ke:</b> ${msg.email_address}
+👤 <b>Dari:</b> ${msg.sender}
+📋 <b>Subjek:</b> ${msg.subject || "(Tanpa subjek)"}
+⏰ <b>Waktu:</b> ${msg.received_at}
+
+━━━━━━━━━━━━━━━
+${body}`;
+}
+
+async function handleList(env: Bindings, telegramUserId: string): Promise<string> {
+  const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    return `❌ Error: User tidak ditemukan.`;
+  }
+
+  const result = await env.DB.prepare(
+    `SELECT e.email_address, e.local_part, e.created_at, 
+     (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
+     (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
+     FROM emails e WHERE e.user_id = ? AND e.is_active = 1 ORDER BY e.created_at DESC`
+  )
+    .bind(userId)
+    .all();
+
+  if (!result.results || result.results.length === 0) {
+    return `📭 <b>Kamu belum punya email.</b>
+
+Buat email baru dengan:
+<code>/create namaemailmu</code>`;
+  }
+
+  let response = `📋 <b>Daftar Email Kamu</b>
+
+`;
+
+  for (const email of result.results as any[]) {
+    const unread = email.unread_count > 0 ? ` (📩 ${email.unread_count} baru)` : "";
+    response += `📧 <code>${email.email_address}</code>${unread}
+   📬 ${email.message_count} pesan | 📅 ${email.created_at}
+
+`;
+  }
+
+  response += `━━━━━━━━━━━━━━━
+📬 Cek inbox: <code>/mails nama</code>
+🗑 Hapus: <code>/delete nama</code>`;
+
+  return response;
+}
+
+async function handleDelete(env: Bindings, telegramUserId: string, identifier: string): Promise<string> {
+  if (!identifier) {
+    return `⚠️ Masukkan nama email yang ingin dihapus.
+
+Contoh: <code>/delete tokoku</code>`;
+  }
+
+  const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    return `❌ Error: User tidak ditemukan.`;
+  }
+
+  const emailAddress = identifier.includes("@")
+    ? identifier.toLowerCase()
+    : `${identifier.toLowerCase()}@${env.TEMP_EMAIL_DOMAIN}`;
+
+  const email = await env.DB.prepare(
+    "SELECT id FROM emails WHERE user_id = ? AND LOWER(email_address) = ?"
+  )
+    .bind(userId, emailAddress)
+    .first<{ id: number }>();
+
+  if (!email) {
+    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan atau bukan milik kamu.`;
+  }
+
+  await env.DB.prepare("DELETE FROM inbox WHERE email_id = ?").bind(email.id).run();
+  await env.DB.prepare("DELETE FROM emails WHERE id = ?").bind(email.id).run();
+
+  return `✅ Email <code>${emailAddress}</code> berhasil dihapus beserta semua pesannya.`;
+}
+
+// ============ HELPERS ============
 async function ensureUser(db: D1Database, telegramUserId: string, username?: string) {
   const existing = await db
     .prepare("SELECT id FROM users WHERE telegram_user_id = ?")
@@ -288,140 +403,6 @@ async function getUserId(db: D1Database, telegramUserId: string): Promise<number
   return user?.id || null;
 }
 
-function generateRandomString(length: number): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-async function createEmail(env: Bindings, telegramUserId: string, customName?: string) {
-  const userId = await getUserId(env.DB, telegramUserId);
-  if (!userId) return { success: false, message: "User tidak ditemukan" };
-
-  const localPart = customName?.toLowerCase().replace(/[^a-z0-9]/g, "") || generateRandomString(10);
-  const emailAddress = `${localPart}@${env.TEMP_EMAIL_DOMAIN}`;
-
-  const existing = await env.DB.prepare("SELECT id FROM emails WHERE email_address = ?")
-    .bind(emailAddress)
-    .first();
-
-  if (existing) {
-    return { success: false, message: "Alamat email sudah digunakan. Coba nama lain." };
-  }
-
-  await env.DB.prepare("INSERT INTO emails (user_id, email_address, local_part) VALUES (?, ?, ?)")
-    .bind(userId, emailAddress, localPart)
-    .run();
-
-  return {
-    success: true,
-    emailAddress,
-    message: `Email ${emailAddress} berhasil dibuat!`,
-  };
-}
-
-async function listEmails(env: Bindings, telegramUserId: string) {
-  const userId = await getUserId(env.DB, telegramUserId);
-  if (!userId) return { success: false, emails: [], message: "User tidak ditemukan" };
-
-  const result = await env.DB.prepare(
-    `SELECT e.email_address, e.created_at, 
-     (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
-     (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
-     FROM emails e WHERE e.user_id = ? AND e.is_active = 1 ORDER BY e.created_at DESC`
-  )
-    .bind(userId)
-    .all();
-
-  return {
-    success: true,
-    emails: result.results,
-    count: result.results.length,
-  };
-}
-
-async function checkInbox(env: Bindings, telegramUserId: string, emailIdentifier: string) {
-  const userId = await getUserId(env.DB, telegramUserId);
-  if (!userId) return { success: false, messages: [], message: "User tidak ditemukan" };
-
-  const emailAddress = emailIdentifier.includes("@")
-    ? emailIdentifier.toLowerCase()
-    : `${emailIdentifier.toLowerCase()}@${env.TEMP_EMAIL_DOMAIN}`;
-
-  const email = await env.DB.prepare(
-    "SELECT id FROM emails WHERE user_id = ? AND LOWER(email_address) = ? AND is_active = 1"
-  )
-    .bind(userId, emailAddress)
-    .first<{ id: number }>();
-
-  if (!email) {
-    return { success: false, messages: [], message: "Email tidak ditemukan atau bukan milik kamu" };
-  }
-
-  const result = await env.DB.prepare(
-    `SELECT id, sender, subject, is_read, received_at FROM inbox 
-     WHERE email_id = ? ORDER BY received_at DESC LIMIT 20`
-  )
-    .bind(email.id)
-    .all();
-
-  return {
-    success: true,
-    emailAddress,
-    messages: result.results,
-    count: result.results.length,
-  };
-}
-
-async function getEmailDetail(env: Bindings, telegramUserId: string, messageId: number) {
-  const userId = await getUserId(env.DB, telegramUserId);
-  if (!userId) return { success: false, message: "User tidak ditemukan" };
-
-  const msg = await env.DB.prepare(
-    `SELECT i.*, e.email_address FROM inbox i 
-     JOIN emails e ON i.email_id = e.id 
-     WHERE i.id = ? AND e.user_id = ?`
-  )
-    .bind(messageId, userId)
-    .first();
-
-  if (!msg) {
-    return { success: false, message: "Pesan tidak ditemukan atau bukan milik kamu" };
-  }
-
-  await env.DB.prepare("UPDATE inbox SET is_read = 1 WHERE id = ?").bind(messageId).run();
-
-  return { success: true, email: msg };
-}
-
-async function deleteEmail(env: Bindings, telegramUserId: string, emailIdentifier: string) {
-  const userId = await getUserId(env.DB, telegramUserId);
-  if (!userId) return { success: false, message: "User tidak ditemukan" };
-
-  const emailAddress = emailIdentifier.includes("@")
-    ? emailIdentifier.toLowerCase()
-    : `${emailIdentifier.toLowerCase()}@${env.TEMP_EMAIL_DOMAIN}`;
-
-  const email = await env.DB.prepare(
-    "SELECT id FROM emails WHERE user_id = ? AND LOWER(email_address) = ?"
-  )
-    .bind(userId, emailAddress)
-    .first<{ id: number }>();
-
-  if (!email) {
-    return { success: false, message: "Email tidak ditemukan atau bukan milik kamu" };
-  }
-
-  await env.DB.prepare("DELETE FROM inbox WHERE email_id = ?").bind(email.id).run();
-  await env.DB.prepare("DELETE FROM emails WHERE id = ?").bind(email.id).run();
-
-  return { success: true, message: `Email ${emailAddress} berhasil dihapus` };
-}
-
-// ============ HELPERS ============
 async function sendTelegramMessage(botToken: string, chatId: number, text: string) {
   const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
