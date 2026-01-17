@@ -130,7 +130,7 @@ Ketik /start untuk melihat panduan.`;
 
 // ============ COMMAND HANDLERS ============
 function getHelpMessage(domain: string): string {
-  return `🎉 <b>Selamat datang di Temp Email Bot!</b>
+  return `🎉 <b>Selamat datang di ZERO Temp Email Bot!</b>
 
 Bot ini membantu kamu membuat email temporary untuk menerima email tanpa menggunakan email asli.
 
@@ -280,13 +280,27 @@ Contoh: <code>/read 5</code>`;
     return `❌ Error: User tidak ditemukan.`;
   }
 
-  const msg = await env.DB.prepare(
-    `SELECT i.*, e.email_address FROM inbox i 
-     JOIN emails e ON i.email_id = e.id 
-     WHERE i.id = ? AND e.user_id = ?`
-  )
-    .bind(parseInt(messageId), userId)
-    .first<{ id: number; sender: string; subject: string; body: string; email_address: string; received_at: string }>();
+  const isAdmin = telegramUserId === env.ADMIN_USER_ID;
+
+  // Admin can read any email, regular users only their own
+  let msg;
+  if (isAdmin) {
+    msg = await env.DB.prepare(
+      `SELECT i.*, e.email_address FROM inbox i 
+       JOIN emails e ON i.email_id = e.id 
+       WHERE i.id = ?`
+    )
+      .bind(parseInt(messageId))
+      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; received_at: string }>();
+  } else {
+    msg = await env.DB.prepare(
+      `SELECT i.*, e.email_address FROM inbox i 
+       JOIN emails e ON i.email_id = e.id 
+       WHERE i.id = ? AND e.user_id = ?`
+    )
+      .bind(parseInt(messageId), userId)
+      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; received_at: string }>();
+  }
 
   if (!msg) {
     return `⚠️ Email dengan ID ${messageId} tidak ditemukan atau bukan milik kamu.`;
@@ -309,34 +323,57 @@ ${body}`;
 }
 
 async function handleList(env: Bindings, telegramUserId: string): Promise<string> {
-  const userId = await getUserId(env.DB, telegramUserId);
-  if (!userId) {
-    return `❌ Error: User tidak ditemukan.`;
+  const isAdmin = telegramUserId === env.ADMIN_USER_ID;
+
+  // Admin sees ALL emails, regular users see only their own
+  let result;
+  if (isAdmin) {
+    result = await env.DB.prepare(
+      `SELECT e.email_address, e.local_part, e.created_at, u.telegram_username,
+       (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
+       (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
+       FROM emails e 
+       JOIN users u ON e.user_id = u.id
+       WHERE e.is_active = 1 ORDER BY e.created_at DESC`
+    ).all();
+  } else {
+    const userId = await getUserId(env.DB, telegramUserId);
+    if (!userId) {
+      return `❌ Error: User tidak ditemukan.`;
+    }
+    result = await env.DB.prepare(
+      `SELECT e.email_address, e.local_part, e.created_at, 
+       (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
+       (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
+       FROM emails e WHERE e.user_id = ? AND e.is_active = 1 ORDER BY e.created_at DESC`
+    )
+      .bind(userId)
+      .all();
   }
 
-  const result = await env.DB.prepare(
-    `SELECT e.email_address, e.local_part, e.created_at, 
-     (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
-     (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
-     FROM emails e WHERE e.user_id = ? AND e.is_active = 1 ORDER BY e.created_at DESC`
-  )
-    .bind(userId)
-    .all();
+  const isAdminView = telegramUserId === env.ADMIN_USER_ID;
 
   if (!result.results || result.results.length === 0) {
-    return `📭 <b>Kamu belum punya email.</b>
+    return isAdminView 
+      ? `📭 <b>Belum ada email terdaftar.</b>`
+      : `📭 <b>Kamu belum punya email.</b>
 
 Buat email baru dengan:
 <code>/create namaemailmu</code>`;
   }
 
-  let response = `📋 <b>Daftar Email Kamu</b>
+  let response = isAdminView 
+    ? `📋 <b>Semua Email (Admin View)</b>
+
+`
+    : `📋 <b>Daftar Email Kamu</b>
 
 `;
 
   for (const email of result.results as any[]) {
     const unread = email.unread_count > 0 ? ` (📩 ${email.unread_count} baru)` : "";
-    response += `📧 <code>${email.email_address}</code>${unread}
+    const owner = isAdminView && email.telegram_username ? ` [@${email.telegram_username}]` : "";
+    response += `📧 <code>${email.email_address}</code>${unread}${owner}
    📬 ${email.message_count} pesan | 📅 ${email.created_at}
 
 `;
@@ -421,46 +458,44 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
 }
 
 function extractEmailBody(rawEmail: string): string {
-  // Normalize line breaks
-  const normalized = rawEmail.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  // Try to extract plain text content between boundaries
+  // Pattern: after "text/plain" ... before next boundary
+  const plainTextMatch = rawEmail.match(/Content-Type:\s*text\/plain[^]*?charset="?[^"]*"?\s*([\s\S]*?)(?=--[0-9a-f]+|$)/i);
   
-  // Check if it's a multipart email
-  const boundaryMatch = normalized.match(/boundary="?([^"\n\s;]+)"?/i);
-  
-  if (boundaryMatch) {
-    const boundary = boundaryMatch[1];
-    const escapedBoundary = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const parts = normalized.split(new RegExp(`--${escapedBoundary}`));
-    
-    // Find plain text part
-    for (const part of parts) {
-      if (part.toLowerCase().includes('content-type: text/plain')) {
-        // Split header from body (double newline)
-        const sections = part.split('\n\n');
-        if (sections.length > 1) {
-          const textContent = sections.slice(1).join('\n\n');
-          const cleaned = textContent.replace(/^--.*$/gm, '').trim();
-          if (cleaned) return stripHtml(cleaned);
-        }
-      }
-    }
-    
-    // If no plain text, try HTML part
-    for (const part of parts) {
-      if (part.toLowerCase().includes('content-type: text/html')) {
-        const sections = part.split('\n\n');
-        if (sections.length > 1) {
-          const htmlContent = sections.slice(1).join('\n\n');
-          const cleaned = htmlContent.replace(/^--.*$/gm, '').trim();
-          if (cleaned) return stripHtml(cleaned);
-        }
-      }
+  if (plainTextMatch && plainTextMatch[1]) {
+    const content = plainTextMatch[1]
+      .replace(/Content-Transfer-Encoding:[^\n]*/gi, '')
+      .replace(/--[0-9a-f]+[^\n]*/gi, '')
+      .replace(/Content-Type:[^\n]*/gi, '')
+      .trim();
+    if (content && content.length > 0) {
+      return stripHtml(content);
     }
   }
   
-  // Simple email without multipart
-  const bodyParts = normalized.split("\n\n");
-  const body = bodyParts.length > 1 ? bodyParts.slice(1).join("\n\n") : normalized;
+  // Try HTML content
+  const htmlMatch = rawEmail.match(/Content-Type:\s*text\/html[^]*?charset="?[^"]*"?\s*([\s\S]*?)(?=--[0-9a-f]+|$)/i);
+  
+  if (htmlMatch && htmlMatch[1]) {
+    const content = htmlMatch[1]
+      .replace(/Content-Transfer-Encoding:[^\n]*/gi, '')
+      .replace(/--[0-9a-f]+[^\n]*/gi, '')
+      .replace(/Content-Type:[^\n]*/gi, '')
+      .trim();
+    if (content && content.length > 0) {
+      return stripHtml(content);
+    }
+  }
+  
+  // Fallback: remove all MIME headers and boundaries
+  let body = rawEmail
+    .replace(/^[\s\S]*?\r?\n\r?\n/, '') // Remove email headers
+    .replace(/--[0-9a-f]{20,}[^\n]*/gi, '') // Remove boundaries
+    .replace(/Content-Type:[^\n]*/gi, '')
+    .replace(/Content-Transfer-Encoding:[^\n]*/gi, '')
+    .replace(/charset="?[^"\s]*"?/gi, '')
+    .trim();
+  
   return stripHtml(body);
 }
 
@@ -475,6 +510,10 @@ function stripHtml(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/=\r?\n/g, '') // Quoted-printable soft line breaks
+    .replace(/=20/g, ' ') // Quoted-printable space
+    .replace(/=3D/g, '=') // Quoted-printable equals
+    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))) // Other QP chars
     .replace(/\s+/g, ' ')
     .trim();
 }
