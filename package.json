@@ -1,0 +1,19 @@
+{
+  "name": "temp-email-bot-cf",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute temp-email-db --remote --file=./src/db/schema.sql"
+  },
+  "dependencies": {
+    "hono": "^4.0.0",
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "wrangler": "^3.0.0",
+    "typescript": "^5.0.0"
+  }
+}
