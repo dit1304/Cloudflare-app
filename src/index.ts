@@ -290,7 +290,8 @@ Contoh: <code>/read 5</code>`;
 
   await env.DB.prepare("UPDATE inbox SET is_read = 1 WHERE id = ?").bind(parseInt(messageId)).run();
 
-  const body = msg.body?.substring(0, 3000) || "(Tidak ada isi)";
+  const rawBody = msg.body || "(Tidak ada isi)";
+  const body = stripHtml(rawBody).substring(0, 3000);
 
   return `📧 <b>Email #${msg.id}</b>
 
@@ -418,6 +419,21 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
 function extractEmailBody(rawEmail: string): string {
   const parts = rawEmail.split("\r\n\r\n");
   return parts.length > 1 ? parts.slice(1).join("\r\n\r\n") : rawEmail;
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ============ EXPORTS ============
