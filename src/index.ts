@@ -418,7 +418,8 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
 
 function extractEmailBody(rawEmail: string): string {
   const parts = rawEmail.split("\r\n\r\n");
-  return parts.length > 1 ? parts.slice(1).join("\r\n\r\n") : rawEmail;
+  const body = parts.length > 1 ? parts.slice(1).join("\r\n\r\n") : rawEmail;
+  return stripHtml(body);
 }
 
 function stripHtml(html: string): string {
