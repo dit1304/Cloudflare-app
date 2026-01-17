@@ -200,7 +200,7 @@ ${responseText}━━━━━━━━━━━━━━━
 }
 
 function getHelpMessage(domain: string): string {
-  return `🎉 <b>Selamat datang di ZERO Temp Email Bot!</b>
+  return `🎉 <b>Selamat datang di Temp Email Bot!</b>
 
 Bot ini membantu kamu membuat email temporary untuk menerima email tanpa menggunakan email asli.
 
