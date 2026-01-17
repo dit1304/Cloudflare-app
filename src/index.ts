@@ -130,7 +130,7 @@ Ketik /start untuk melihat panduan.`;
 
 // ============ COMMAND HANDLERS ============
 function getHelpMessage(domain: string): string {
-  return `🎉 <b>Selamat datang di ZERO Temp Email Bot!</b>
+  return `🎉 <b>Selamat datang di Temp Email Bot!</b>
 
 Bot ini membantu kamu membuat email temporary untuk menerima email tanpa menggunakan email asli.
 
@@ -207,28 +207,38 @@ async function handleMails(env: Bindings, telegramUserId: string, identifier: st
 
 Contoh: <code>/mails tokoku</code>
 
-📋 Lihat semua email kamu: <code>/list</code>`;
+📋 Lihat semua email: <code>/list</code>`;
   }
 
-  const userId = await getUserId(env.DB, telegramUserId);
-  if (!userId) {
-    return `❌ Error: User tidak ditemukan.`;
-  }
-
+  const isAdmin = telegramUserId === env.ADMIN_USER_ID;
   const emailAddress = identifier.includes("@")
     ? identifier.toLowerCase()
     : `${identifier.toLowerCase()}@${env.TEMP_EMAIL_DOMAIN}`;
 
-  const email = await env.DB.prepare(
-    "SELECT id, email_address FROM emails WHERE user_id = ? AND LOWER(email_address) = ? AND is_active = 1"
-  )
-    .bind(userId, emailAddress)
-    .first<{ id: number; email_address: string }>();
+  let email;
+  if (isAdmin) {
+    // Admin can view any email
+    email = await env.DB.prepare(
+      "SELECT id, email_address FROM emails WHERE LOWER(email_address) = ? AND is_active = 1"
+    )
+      .bind(emailAddress)
+      .first<{ id: number; email_address: string }>();
+  } else {
+    const userId = await getUserId(env.DB, telegramUserId);
+    if (!userId) {
+      return `❌ Error: User tidak ditemukan.`;
+    }
+    email = await env.DB.prepare(
+      "SELECT id, email_address FROM emails WHERE user_id = ? AND LOWER(email_address) = ? AND is_active = 1"
+    )
+      .bind(userId, emailAddress)
+      .first<{ id: number; email_address: string }>();
+  }
 
   if (!email) {
-    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan atau bukan milik kamu.
+    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan.
 
-📋 Lihat semua email kamu: <code>/list</code>`;
+📋 Lihat semua email: <code>/list</code>`;
   }
 
   const result = await env.DB.prepare(
