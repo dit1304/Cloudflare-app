@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import * as OTPAuth from "otpauth";
 
 type Bindings = {
   DB: D1Database;
@@ -121,6 +122,10 @@ async function processCommand(
       }
       return await handleDelete(env, telegramUserId, arg);
 
+    case "/2fa":
+    case "/otp":
+      return handle2FA(arg);
+
     default:
       return `❓ Perintah tidak dikenali.
 
@@ -129,8 +134,73 @@ Ketik /start untuk melihat panduan.`;
 }
 
 // ============ COMMAND HANDLERS ============
+function handle2FA(secretInput: string): string {
+  if (!secretInput) {
+    return `🔐 <b>Generator Kode 2FA/OTP</b>
+
+Kirimkan secret key 2FA kamu untuk mendapatkan kode OTP.
+
+📋 <b>Cara Pakai:</b>
+<code>/2fa SECRET_KEY</code>
+
+Contoh:
+<code>/2fa JBSWY3DPEHPK3PXP</code>
+
+💡 Bisa kirim beberapa secret sekaligus (pisahkan dengan baris baru):
+<code>/2fa SECRET1
+SECRET2
+SECRET3</code>`;
+  }
+
+  const secrets = secretInput.split('\n');
+  let responseText = "";
+  let successCount = 0;
+
+  for (let secret of secrets) {
+    secret = secret.trim().replace(/ /g, '').toUpperCase();
+    
+    if (secret.length < 8) continue;
+
+    try {
+      const totp = new OTPAuth.TOTP({
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(secret)
+      });
+
+      const code = totp.generate();
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = 30 - (now % 30);
+      
+      responseText += `🔑 <code>${secret.substring(0, 8)}...</code>
+🔢 Kode OTP: <code>${code}</code>
+⏱️ Berlaku: ${remaining} detik
+
+`;
+      successCount++;
+    } catch (e) {
+      responseText += `❌ <code>${secret.substring(0, 8)}...</code> - Secret tidak valid
+
+`;
+    }
+  }
+
+  if (successCount === 0) {
+    return `❌ Secret key tidak valid.
+
+Pastikan format secret key benar (Base32).
+Contoh: <code>JBSWY3DPEHPK3PXP</code>`;
+  }
+
+  return `🔐 <b>Kode OTP</b>
+
+${responseText}━━━━━━━━━━━━━━━
+💡 Kode akan berubah setiap 30 detik.`;
+}
+
 function getHelpMessage(domain: string): string {
-  return `🎉 <b>Selamat datang di ZERO Temp Email Bot!</b>
+  return `🎉 <b>Selamat datang di Temp Email Bot!</b>
 
 Bot ini membantu kamu membuat email temporary untuk menerima email tanpa menggunakan email asli.
 
@@ -148,6 +218,10 @@ Cek inbox email. Contoh:
 📖 <b>/read</b> <code>id</code>
 Baca isi email. Contoh:
 <code>/read 5</code>
+
+🔐 <b>/2fa</b> <code>secret</code>
+Generate kode OTP. Contoh:
+<code>/2fa JBSWY3DPEHPK3PXP</code>
 
 ━━━━━━━━━━━━━━━
 💡 <b>Tips:</b> Gunakan email temporary untuk daftar akun, verifikasi, atau tes!`;
