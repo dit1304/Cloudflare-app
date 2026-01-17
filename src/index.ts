@@ -205,9 +205,7 @@ async function handleMails(env: Bindings, telegramUserId: string, identifier: st
   if (!identifier) {
     return `⚠️ Masukkan nama email yang ingin dicek.
 
-Contoh: <code>/mails tokoku</code>
-
-📋 Lihat semua email kamu: <code>/list</code>`;
+Contoh: <code>/mails tokoku</code>`;
   }
 
   const userId = await getUserId(env.DB, telegramUserId);
@@ -226,9 +224,7 @@ Contoh: <code>/mails tokoku</code>
     .first<{ id: number; email_address: string }>();
 
   if (!email) {
-    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan atau bukan milik kamu.
-
-📋 Lihat semua email kamu: <code>/list</code>`;
+    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan atau bukan milik kamu.`;
   }
 
   const result = await env.DB.prepare(
