@@ -205,7 +205,9 @@ async function handleMails(env: Bindings, telegramUserId: string, identifier: st
   if (!identifier) {
     return `⚠️ Masukkan nama email yang ingin dicek.
 
-Contoh: <code>/mails tokoku</code>`;
+Contoh: <code>/mails tokoku</code>
+
+📋 Lihat semua email kamu: <code>/list</code>`;
   }
 
   const userId = await getUserId(env.DB, telegramUserId);
@@ -224,7 +226,9 @@ Contoh: <code>/mails tokoku</code>`;
     .first<{ id: number; email_address: string }>();
 
   if (!email) {
-    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan atau bukan milik kamu.`;
+    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan atau bukan milik kamu.
+
+📋 Lihat semua email kamu: <code>/list</code>`;
   }
 
   const result = await env.DB.prepare(
@@ -417,8 +421,46 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
 }
 
 function extractEmailBody(rawEmail: string): string {
-  const parts = rawEmail.split("\r\n\r\n");
-  const body = parts.length > 1 ? parts.slice(1).join("\r\n\r\n") : rawEmail;
+  // Normalize line breaks
+  const normalized = rawEmail.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  // Check if it's a multipart email
+  const boundaryMatch = normalized.match(/boundary="?([^"\n\s;]+)"?/i);
+  
+  if (boundaryMatch) {
+    const boundary = boundaryMatch[1];
+    const escapedBoundary = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const parts = normalized.split(new RegExp(`--${escapedBoundary}`));
+    
+    // Find plain text part
+    for (const part of parts) {
+      if (part.toLowerCase().includes('content-type: text/plain')) {
+        // Split header from body (double newline)
+        const sections = part.split('\n\n');
+        if (sections.length > 1) {
+          const textContent = sections.slice(1).join('\n\n');
+          const cleaned = textContent.replace(/^--.*$/gm, '').trim();
+          if (cleaned) return stripHtml(cleaned);
+        }
+      }
+    }
+    
+    // If no plain text, try HTML part
+    for (const part of parts) {
+      if (part.toLowerCase().includes('content-type: text/html')) {
+        const sections = part.split('\n\n');
+        if (sections.length > 1) {
+          const htmlContent = sections.slice(1).join('\n\n');
+          const cleaned = htmlContent.replace(/^--.*$/gm, '').trim();
+          if (cleaned) return stripHtml(cleaned);
+        }
+      }
+    }
+  }
+  
+  // Simple email without multipart
+  const bodyParts = normalized.split("\n\n");
+  const body = bodyParts.length > 1 ? bodyParts.slice(1).join("\n\n") : normalized;
   return stripHtml(body);
 }
 
