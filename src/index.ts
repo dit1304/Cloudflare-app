@@ -42,11 +42,33 @@ app.post("/webhooks/telegram", async (c) => {
 });
 
 // ============ EMAIL HANDLER (from Cloudflare Email Routing) ============
+function parseFromHeader(fromHeader: string, rawFrom: string): string {
+  // Try to extract display name from "From" header
+  // Format: "Display Name <email@example.com>" or just "email@example.com"
+  if (fromHeader) {
+    const match = fromHeader.match(/^["']?([^"'<]+)["']?\s*<[^>]+>$/);
+    if (match && match[1]) {
+      const displayName = match[1].trim();
+      // Return "Display Name (email)" format
+      return `${displayName}`;
+    }
+  }
+  // Fallback: clean up technical bounce addresses
+  // msprvs1=xxx=bounces-xxx@domain -> just show domain
+  if (rawFrom.includes('=') && rawFrom.includes('bounces')) {
+    const domain = rawFrom.split('@')[1];
+    return domain || rawFrom;
+  }
+  return rawFrom;
+}
+
 async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
   console.log(`📧 Email received: ${message.from} -> ${message.to}`);
 
   const toAddress = message.to.toLowerCase();
   const subject = message.headers.get("subject") || "(Tanpa subjek)";
+  const fromHeader = message.headers.get("from") || "";
+  const senderDisplay = parseFromHeader(fromHeader, message.from);
 
   const email = await env.DB.prepare(
     "SELECT e.id, e.user_id, u.telegram_user_id FROM emails e JOIN users u ON e.user_id = u.id WHERE LOWER(e.email_address) = ?"
@@ -67,7 +89,7 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
         const notificationText = `📨 <b>Email Diteruskan</b>
 
 📧 <b>Ke:</b> ${toAddress}
-👤 <b>Dari:</b> ${message.from}
+👤 <b>Dari:</b> ${senderDisplay}
 📋 <b>Subjek:</b> ${subject}
 
 ⚠️ Alamat tidak terdaftar di bot.
@@ -90,7 +112,7 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
   const notificationText = `📬 <b>Email Baru!</b>
 
 📧 <b>Ke:</b> ${toAddress}
-👤 <b>Dari:</b> ${message.from}
+👤 <b>Dari:</b> ${senderDisplay}
 📋 <b>Subjek:</b> ${subject}
 
 Ketik <code>/mails ${toAddress.split("@")[0]}</code> untuk membaca.`;
