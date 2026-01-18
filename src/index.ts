@@ -6,6 +6,7 @@ type Bindings = {
   TELEGRAM_BOT_TOKEN: string;
   TEMP_EMAIL_DOMAIN: string;
   ADMIN_USER_ID: string;
+  FALLBACK_EMAIL: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -54,7 +55,26 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
     .first<{ id: number; user_id: number; telegram_user_id: string }>();
 
   if (!email) {
-    console.log("Email address not found:", toAddress);
+    console.log("Email address not found, forwarding to fallback:", toAddress);
+    
+    // Forward to fallback email
+    if (env.FALLBACK_EMAIL) {
+      await message.forward(env.FALLBACK_EMAIL);
+      
+      // Notify admin about forwarded email
+      const botToken = env.TELEGRAM_BOT_TOKEN;
+      if (botToken && env.ADMIN_USER_ID) {
+        const notificationText = `📨 <b>Email Diteruskan</b>
+
+📧 <b>Ke:</b> ${toAddress}
+👤 <b>Dari:</b> ${message.from}
+📋 <b>Subjek:</b> ${subject}
+
+⚠️ Alamat tidak terdaftar di bot.
+✉️ Diteruskan ke: ${env.FALLBACK_EMAIL}`;
+        await sendTelegramMessage(botToken, parseInt(env.ADMIN_USER_ID), notificationText);
+      }
+    }
     return;
   }
 
