@@ -77,23 +77,47 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
     .first<{ id: number; user_id: number; telegram_user_id: string }>();
 
   if (!email) {
-    console.log("Email address not found, forwarding to fallback:", toAddress);
+    console.log("Email address not found, creating catch-all entry:", toAddress);
     
-    // Forward to fallback email
-    if (env.FALLBACK_EMAIL) {
-      await message.forward(env.FALLBACK_EMAIL);
+    // Auto-create email for admin (catch-all)
+    const adminUserId = await getOrCreateAdminUser(env.DB, env.ADMIN_USER_ID);
+    
+    // Create the email address and assign to admin
+    const emailResult = await env.DB.prepare(
+      "INSERT INTO emails (user_id, email_address, is_active) VALUES (?, ?, 1) RETURNING id"
+    )
+      .bind(adminUserId, toAddress)
+      .first<{ id: number }>();
+    
+    if (emailResult) {
+      const rawEmail = await new Response(message.raw).text();
+      const body = extractEmailBody(rawEmail);
       
-      // Notify admin about forwarded email
+      // Save to inbox
+      const inboxResult = await env.DB.prepare(
+        "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?) RETURNING id"
+      )
+        .bind(emailResult.id, message.from, subject, body, JSON.stringify(Object.fromEntries(message.headers)))
+        .first<{ id: number }>();
+      
+      // Forward to fallback as backup
+      if (env.FALLBACK_EMAIL) {
+        await message.forward(env.FALLBACK_EMAIL);
+      }
+      
+      // Notify admin
       const botToken = env.TELEGRAM_BOT_TOKEN;
       if (botToken && env.ADMIN_USER_ID) {
-        const notificationText = `📨 <b>Email Diteruskan</b>
+        const localPart = toAddress.split("@")[0];
+        const msgId = inboxResult?.id || "";
+        const notificationText = `📨 <b>Email Baru (Catch-All)</b>
 
 📧 <b>Ke:</b> ${toAddress}
 👤 <b>Dari:</b> ${senderDisplay}
 📋 <b>Subjek:</b> ${subject}
 
-⚠️ Alamat tidak terdaftar di bot.
-✉️ Diteruskan ke: ${env.FALLBACK_EMAIL}`;
+📖 Baca: <code>/read ${msgId}</code>
+📬 Inbox: <code>/mails ${localPart}</code>`;
         await sendTelegramMessage(botToken, parseInt(env.ADMIN_USER_ID), notificationText);
       }
     }
@@ -242,7 +266,7 @@ ${responseText}━━━━━━━━━━━━━━━
 }
 
 function getHelpMessage(domain: string): string {
-  return `🎉 <b>Selamat datang di ZERO Temp Email Bot!</b>
+  return `🎉 <b>Selamat datang di Temp Email Bot!</b>
 
 Bot ini membantu kamu membuat email temporary untuk menerima email tanpa menggunakan email asli.
 
@@ -565,6 +589,24 @@ async function getUserId(db: D1Database, telegramUserId: string): Promise<number
     .bind(telegramUserId)
     .first<{ id: number }>();
   return user?.id || null;
+}
+
+async function getOrCreateAdminUser(db: D1Database, adminTelegramId: string): Promise<number> {
+  const existing = await db
+    .prepare("SELECT id FROM users WHERE telegram_user_id = ?")
+    .bind(adminTelegramId)
+    .first<{ id: number }>();
+
+  if (existing) {
+    return existing.id;
+  }
+
+  const result = await db
+    .prepare("INSERT INTO users (telegram_user_id, telegram_username) VALUES (?, ?) RETURNING id")
+    .bind(adminTelegramId, "admin")
+    .first<{ id: number }>();
+  
+  return result?.id || 0;
 }
 
 async function sendTelegramMessage(botToken: string, chatId: number, text: string) {
