@@ -1118,18 +1118,35 @@ Ini akan generate QR code untuk secret tersimpan.`;
   // Generate otpauth URI
   const otpauthUri = `otpauth://totp/${encodeURIComponent(name)}?secret=${result.secret}&issuer=TempEmailBot`;
   
-  // Use Google Chart API to generate QR code
-  const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl=${encodeURIComponent(otpauthUri)}&choe=UTF-8`;
+  // Use QR Server API (free, no auth required)
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(otpauthUri)}`;
 
-  return `🔳 <b>QR Code untuk: ${name}</b>
+  // Send QR code as photo to Telegram
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: telegramUserId,
+        photo: qrUrl,
+        caption: `🔳 QR Code untuk: ${name}\n\n📱 Scan dengan app authenticator\n\n🔗 Manual entry:\n${result.secret}\n\n⚠️ Jangan bagikan QR ini!`,
+        parse_mode: "HTML"
+      })
+    });
+  } catch (e) {
+    console.error("Failed to send QR photo:", e);
+    return `🔳 <b>QR Code untuk: ${name}</b>
 
-📱 Scan QR code ini dengan app authenticator:
-<a href="${qrUrl}">📲 Lihat QR Code</a>
+📱 <a href="${qrUrl}">📲 Klik untuk lihat QR Code</a>
 
 🔗 <b>Manual entry:</b>
 <code>${result.secret}</code>
 
-⚠️ Link QR hanya untuk kamu. Jangan bagikan!`;
+⚠️ Jangan bagikan!`;
+  }
+
+  // Return empty since we sent the photo
+  return "";
 }
 
 function getHelpMessage(domain: string): string {
