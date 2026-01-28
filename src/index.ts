@@ -312,7 +312,7 @@ Contoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>`;
     // Admin can see all users' secrets
     if (isAdmin) {
       const result = await env.DB.prepare(
-        `SELECT t.name, t.created_at, u.telegram_user_id 
+        `SELECT t.name, t.created_at, u.telegram_user_id, u.telegram_username 
          FROM totp_secrets t 
          JOIN users u ON t.user_id = u.id 
          ORDER BY u.telegram_user_id, t.name`
@@ -327,7 +327,8 @@ Contoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>`;
       for (const item of result.results as any[]) {
         if (item.telegram_user_id !== currentUser) {
           currentUser = item.telegram_user_id;
-          response += `\n👤 <b>User ${currentUser}:</b>\n`;
+          const username = item.telegram_username ? `@${item.telegram_username}` : "(no username)";
+          response += `\n👤 <b>User ${currentUser}</b> ${username}\n`;
         }
         response += `  🔑 ${item.name}\n`;
       }
@@ -516,7 +517,7 @@ async function handleStats(env: Bindings): Promise<string> {
 
   return `📊 <b>Statistik Bot</b>
 
-👥 Total User: <b>${users?.count || 0}</b>
+fir� Total User: <b>${users?.count || 0}</b>
 📧 Email Aktif: <b>${emails?.count || 0}</b>
 📬 Total Pesan: <b>${messages?.count || 0}</b>
 📩 Belum Dibaca: <b>${unread?.count || 0}</b>
