@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     telegram_user_id TEXT UNIQUE NOT NULL,
     telegram_username TEXT,
+    auto_delete_days INTEGER DEFAULT 7,
+    language TEXT DEFAULT 'id',
+    timezone TEXT DEFAULT 'Asia/Jakarta',
     created_at TEXT DEFAULT (datetime('now'))
 );
 
