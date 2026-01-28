@@ -307,6 +307,34 @@ Contoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>`;
 
   // /2fa list
   if (subCommand === "list") {
+    const isAdmin = telegramUserId === env.ADMIN_USER_ID;
+    
+    // Admin can see all users' secrets
+    if (isAdmin) {
+      const result = await env.DB.prepare(
+        `SELECT t.name, t.created_at, u.telegram_user_id 
+         FROM totp_secrets t 
+         JOIN users u ON t.user_id = u.id 
+         ORDER BY u.telegram_user_id, t.name`
+      ).all();
+
+      if (!result.results || result.results.length === 0) {
+        return `📭 Belum ada 2FA secret tersimpan di sistem.`;
+      }
+
+      let response = `🔐 <b>Daftar Semua 2FA Secret (Admin)</b>\n\n`;
+      let currentUser = "";
+      for (const item of result.results as any[]) {
+        if (item.telegram_user_id !== currentUser) {
+          currentUser = item.telegram_user_id;
+          response += `\n👤 <b>User ${currentUser}:</b>\n`;
+        }
+        response += `  🔑 ${item.name}\n`;
+      }
+      return response;
+    }
+    
+    // Regular user only sees their own
     const result = await env.DB.prepare(
       "SELECT name, created_at FROM totp_secrets WHERE user_id = ? ORDER BY name"
     ).bind(userId).all();
