@@ -237,6 +237,13 @@ async function processCommand(
       }
       return await handleCleanup(env);
 
+    case "/broadcast":
+    case "/bc":
+      if (!isAdmin) {
+        return `⛔ Perintah ini hanya untuk admin.`;
+      }
+      return await handleBroadcast(env, telegramUserId, arg);
+
     default:
       return `❓ Perintah tidak dikenali.
 
@@ -517,7 +524,7 @@ async function handleStats(env: Bindings): Promise<string> {
 
   return `📊 <b>Statistik Bot</b>
 
-fir� Total User: <b>${users?.count || 0}</b>
+👥 Total User: <b>${users?.count || 0}</b>
 📧 Email Aktif: <b>${emails?.count || 0}</b>
 📬 Total Pesan: <b>${messages?.count || 0}</b>
 📩 Belum Dibaca: <b>${unread?.count || 0}</b>
@@ -662,6 +669,120 @@ async function handleCleanup(env: Bindings): Promise<string> {
 📪 Alamat dihapus: <b>${emailCleanup.meta.changes}</b> (tidak terpakai > 30 hari)`;
 }
 
+async function handleBroadcast(env: Bindings, adminChatId: string, message: string): Promise<string> {
+  if (!message || message.trim() === "") {
+    return `⚠️ <b>Format:</b> <code>/broadcast pesan</code>
+
+Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
+  }
+
+  // Get all users
+  const users = await env.DB.prepare("SELECT telegram_user_id FROM users").all();
+  
+  if (!users.results || users.results.length === 0) {
+    return `❌ Tidak ada user terdaftar.`;
+  }
+
+  const botToken = env.TELEGRAM_BOT_TOKEN;
+  const totalUsers = users.results.length;
+  let success = 0;
+  let failed = 0;
+  let processed = 0;
+
+  // Helper to generate progress bar
+  const getProgressBar = (current: number, total: number): string => {
+    const percentage = Math.round((current / total) * 100);
+    const filled = Math.round(percentage / 10);
+    const empty = 10 - filled;
+    return "▓".repeat(filled) + "░".repeat(empty) + ` ${percentage}%`;
+  };
+
+  // Helper to generate status text
+  const getStatusText = (done: boolean = false): string => {
+    const progress = getProgressBar(processed, totalUsers);
+    if (done) {
+      return `📢 <b>Broadcast Selesai</b>
+
+${progress}
+
+✅ Terkirim: <b>${success}</b>
+❌ Gagal: <b>${failed}</b>
+📊 Total: <b>${totalUsers}</b> user`;
+    }
+    return `📢 <b>Broadcasting...</b>
+
+${progress}
+
+⏳ Proses: <b>${processed}</b>/<b>${totalUsers}</b>
+✅ Berhasil: <b>${success}</b>
+❌ Gagal: <b>${failed}</b>`;
+  };
+
+  // Send initial progress message
+  const initialMsg = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: adminChatId,
+      text: getStatusText(),
+      parse_mode: "HTML"
+    })
+  });
+
+  const initialResult = await initialMsg.json() as any;
+  const messageId = initialResult.result?.message_id;
+
+  const broadcastText = `📢 <b>Pengumuman</b>\n\n${message}`;
+
+  // Update frequency: every 5 users or at least 3 updates total
+  const updateEvery = Math.max(1, Math.min(5, Math.floor(totalUsers / 3)));
+
+  for (const user of users.results as any[]) {
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: user.telegram_user_id,
+          text: broadcastText,
+          parse_mode: "HTML"
+        })
+      });
+      
+      if (response.ok) {
+        success++;
+      } else {
+        failed++;
+      }
+    } catch (e) {
+      failed++;
+    }
+    
+    processed++;
+
+    // Update progress message periodically
+    if (messageId && (processed % updateEvery === 0 || processed === totalUsers)) {
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: adminChatId,
+            message_id: messageId,
+            text: processed === totalUsers ? getStatusText(true) : getStatusText(),
+            parse_mode: "HTML"
+          })
+        });
+      } catch (e) {
+        // Ignore edit errors
+      }
+    }
+  }
+
+  // Return empty since we already sent the final message
+  return "";
+}
+
 function getHelpMessage(domain: string): string {
   return `🎉 <b>Selamat datang di Temp Email Bot!</b>
 
@@ -704,10 +825,7 @@ Lihat secret tersimpan
 
 <b>/2fa</b> <code>nama</code>
 Generate dari secret tersimpan
-→ <code>/2fa google</code>
-
-━━━━━━━━━━━━━━━
-💡 Email yang tidak terdaftar otomatis disimpan dan bisa dibaca di bot.`;
+→ <code>/2fa google</code>`;
 }
 
 async function handleCreate(env: Bindings, telegramUserId: string, name: string): Promise<string> {
