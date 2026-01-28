@@ -288,6 +288,21 @@ async function processCommand(
       }
       return await handleBroadcast(env, telegramUserId, arg);
 
+    case "/setting":
+    case "/settings":
+    case "/set":
+      return await handleSettings(env, telegramUserId, arg);
+
+    case "/mystats":
+    case "/me":
+      return await handleMyStats(env, telegramUserId);
+
+    case "/backup":
+      return await handleBackup(env, telegramUserId);
+
+    case "/qr":
+      return await handleQR(env, telegramUserId, arg);
+
     default:
       return `❓ Perintah tidak dikenali.
 
@@ -310,17 +325,32 @@ async function processCallback(
       // Read email: read:ID
       return await handleRead(env, telegramUserId, params[0]);
     
-    case "mails":
+    case "mails": {
       // Back to inbox: mails:emailName
-      return await handleMails(env, telegramUserId, params[0]);
+      const result = await handleMails(env, telegramUserId, params[0]);
+      return typeof result === 'string' ? result : result.text;
+    }
     
-    case "2fa":
-      // Generate 2FA: 2fa:name
-      return await handle2FA(env, telegramUserId, params[0]);
+    case "2fa": {
+      // Generate 2FA: 2fa:name or 2fa:list
+      const result = await handle2FA(env, telegramUserId, params[0]);
+      return typeof result === 'string' ? result : result.text;
+    }
     
-    case "refresh":
+    case "refresh": {
       // Refresh 2FA code: refresh:name
-      return await handle2FA(env, telegramUserId, params[0]);
+      const result = await handle2FA(env, telegramUserId, params[0]);
+      return typeof result === 'string' ? result : result.text;
+    }
+    
+    case "set":
+      // Settings callback: set:autodelete:days
+      if (params[0] === "autodelete") {
+        const result = await handleSettings(env, telegramUserId, `autodelete ${params[1]}`);
+        // handleSettings might return object or string - extract text for callbacks
+        return typeof result === 'string' ? result : result.text;
+      }
+      return "";
     
     default:
       return "";
@@ -737,9 +767,16 @@ Contoh: <code>/forward 5 myemail@gmail.com</code>`;
 
 // Cleanup old emails (admin only)
 async function handleCleanup(env: Bindings): Promise<string> {
-  // Delete emails older than 7 days
+  // Delete emails based on each user's auto_delete_days setting
+  // Users with auto_delete_days = 0 are excluded (never delete)
   const result = await env.DB.prepare(`
-    DELETE FROM inbox WHERE received_at < datetime('now', '-7 days')
+    DELETE FROM inbox WHERE id IN (
+      SELECT i.id FROM inbox i
+      JOIN emails e ON i.email_id = e.id
+      JOIN users u ON e.user_id = u.id
+      WHERE u.auto_delete_days > 0
+        AND i.received_at < datetime('now', '-' || COALESCE(u.auto_delete_days, 7) || ' days')
+    )
   `).run();
 
   // Delete unused email addresses (no messages for 30 days)
@@ -753,7 +790,7 @@ async function handleCleanup(env: Bindings): Promise<string> {
 
   return `🧹 <b>Cleanup Selesai</b>
 
-📧 Email dihapus: <b>${result.meta.changes}</b> (> 7 hari)
+📧 Email dihapus: <b>${result.meta.changes}</b> (berdasarkan setting user)
 📪 Alamat dihapus: <b>${emailCleanup.meta.changes}</b> (tidak terpakai > 30 hari)`;
 }
 
@@ -871,6 +908,230 @@ ${progress}
   return "";
 }
 
+// ============ SETTINGS HANDLER ============
+async function handleSettings(env: Bindings, telegramUserId: string, arg: string): Promise<CommandResponse> {
+  const userId = await getOrCreateUser(env, telegramUserId);
+  
+  // Get current settings
+  const user = await env.DB.prepare(
+    "SELECT auto_delete_days, language, timezone FROM users WHERE id = ?"
+  ).bind(userId).first() as any;
+
+  // Default values if columns don't exist yet
+  const currentAutoDelete = user?.auto_delete_days ?? 7;
+  const currentLang = user?.language ?? 'id';
+  const currentTz = user?.timezone ?? 'Asia/Jakarta';
+
+  if (!arg) {
+    // Show current settings
+    const keyboard = [
+      [
+        { text: "📅 Auto-delete: 3 hari", callback_data: "set:autodelete:3" },
+        { text: "7 hari", callback_data: "set:autodelete:7" }
+      ],
+      [
+        { text: "14 hari", callback_data: "set:autodelete:14" },
+        { text: "30 hari", callback_data: "set:autodelete:30" }
+      ],
+      [
+        { text: "♾️ Tidak pernah", callback_data: "set:autodelete:0" }
+      ]
+    ];
+
+    return {
+      text: `⚙️ <b>Pengaturan Akun</b>
+
+📅 <b>Auto-delete email:</b> ${currentAutoDelete === 0 ? 'Tidak pernah' : currentAutoDelete + ' hari'}
+🌐 <b>Bahasa:</b> ${currentLang === 'id' ? 'Indonesia' : 'English'}
+🕐 <b>Timezone:</b> ${currentTz}
+
+━━━━━━━━━━━━━━━
+<b>Ubah pengaturan:</b>
+<code>/set autodelete 7</code> - Auto-hapus 7 hari
+<code>/set autodelete 0</code> - Tidak auto-hapus
+
+👇 Atau tap tombol di bawah:`,
+      keyboard
+    };
+  }
+
+  const parts = arg.toLowerCase().split(/\s+/);
+  const setting = parts[0];
+  const value = parts[1];
+
+  if (setting === "autodelete" || setting === "auto") {
+    if (!value) {
+      return `⚠️ Format: <code>/set autodelete HARI</code>
+      
+Contoh: <code>/set autodelete 7</code> (hapus email >7 hari)
+Contoh: <code>/set autodelete 0</code> (tidak pernah hapus)`;
+    }
+
+    const days = parseInt(value);
+    if (isNaN(days) || days < 0 || days > 365) {
+      return `⚠️ Masukkan angka 0-365 hari.`;
+    }
+
+    await env.DB.prepare(
+      "UPDATE users SET auto_delete_days = ? WHERE id = ?"
+    ).bind(days, userId).run();
+
+    return `✅ Auto-delete diset ke <b>${days === 0 ? 'tidak pernah' : days + ' hari'}</b>.
+
+Email yang lebih tua dari ${days} hari akan otomatis dihapus saat cleanup.`;
+  }
+
+  return `⚠️ Pengaturan tidak dikenali.
+
+Gunakan: <code>/set autodelete HARI</code>`;
+}
+
+// ============ MY STATS HANDLER ============
+async function handleMyStats(env: Bindings, telegramUserId: string): Promise<string> {
+  const userId = await getOrCreateUser(env, telegramUserId);
+
+  // Get user info and settings
+  const user = await env.DB.prepare(
+    "SELECT telegram_username, auto_delete_days, created_at FROM users WHERE id = ?"
+  ).bind(userId).first() as any;
+
+  // Get email count
+  const emailCount = await env.DB.prepare(
+    "SELECT COUNT(*) as count FROM emails WHERE user_id = ?"
+  ).bind(userId).first() as any;
+
+  // Get inbox count (total and unread)
+  const inboxStats = await env.DB.prepare(`
+    SELECT 
+      COUNT(*) as total,
+      SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread
+    FROM inbox i
+    JOIN emails e ON i.email_id = e.id
+    WHERE e.user_id = ?
+  `).bind(userId).first() as any;
+
+  // Get 2FA count
+  const totpCount = await env.DB.prepare(
+    "SELECT COUNT(*) as count FROM totp_secrets WHERE user_id = ?"
+  ).bind(userId).first() as any;
+
+  // Get email addresses
+  const emails = await env.DB.prepare(
+    "SELECT email_address FROM emails WHERE user_id = ? AND is_active = 1"
+  ).bind(userId).all();
+
+  const autoDeleteText = (user?.auto_delete_days ?? 7) === 0 
+    ? 'Tidak pernah' 
+    : `${user?.auto_delete_days ?? 7} hari`;
+
+  let response = `📊 <b>Statistik Akun Kamu</b>
+
+👤 <b>User ID:</b> ${telegramUserId}
+${user?.telegram_username ? `📛 <b>Username:</b> @${user.telegram_username}` : ''}
+📅 <b>Bergabung:</b> ${user?.created_at?.split('T')[0] || 'N/A'}
+
+━━━ 📧 <b>EMAIL</b> ━━━
+📬 <b>Alamat aktif:</b> ${emailCount?.count || 0}
+📨 <b>Total email:</b> ${inboxStats?.total || 0}
+📩 <b>Belum dibaca:</b> ${inboxStats?.unread || 0}
+
+━━━ 🔐 <b>2FA</b> ━━━
+🔑 <b>Secret tersimpan:</b> ${totpCount?.count || 0}
+
+━━━ ⚙️ <b>PENGATURAN</b> ━━━
+📅 <b>Auto-delete:</b> ${autoDeleteText}`;
+
+  if (emails.results && emails.results.length > 0) {
+    response += `\n\n📧 <b>Alamat Email:</b>`;
+    for (const e of emails.results as any[]) {
+      response += `\n• <code>${e.email_address}</code>`;
+    }
+  }
+
+  return response;
+}
+
+// ============ BACKUP HANDLER ============
+async function handleBackup(env: Bindings, telegramUserId: string): Promise<string> {
+  const userId = await getOrCreateUser(env, telegramUserId);
+
+  // Get all 2FA secrets
+  const secrets = await env.DB.prepare(
+    "SELECT name, secret, created_at FROM totp_secrets WHERE user_id = ? ORDER BY name"
+  ).bind(userId).all();
+
+  if (!secrets.results || secrets.results.length === 0) {
+    return `📭 Tidak ada 2FA secret untuk di-backup.
+
+➕ Tambah secret: <code>/2fa add nama SECRET</code>`;
+  }
+
+  // Format as text backup
+  let backup = `🔐 BACKUP 2FA SECRETS
+📅 ${new Date().toISOString().split('T')[0]}
+👤 User: ${telegramUserId}
+━━━━━━━━━━━━━━━━━━━━━━
+
+`;
+
+  for (const item of secrets.results as any[]) {
+    backup += `📛 ${item.name}
+🔑 ${item.secret}
+📅 ${item.created_at?.split('T')[0] || 'N/A'}
+──────────────────
+
+`;
+  }
+
+  backup += `Total: ${secrets.results.length} secret(s)
+
+⚠️ SIMPAN BACKUP INI DI TEMPAT AMAN!
+Jangan bagikan ke siapapun.`;
+
+  return `<pre>${backup}</pre>`;
+}
+
+// ============ QR CODE HANDLER ============
+async function handleQR(env: Bindings, telegramUserId: string, arg: string): Promise<string> {
+  if (!arg) {
+    return `⚠️ Format: <code>/qr nama_secret</code>
+
+Contoh: <code>/qr google</code>
+
+Ini akan generate QR code untuk secret tersimpan.`;
+  }
+
+  const userId = await getOrCreateUser(env, telegramUserId);
+  const name = arg.toLowerCase().trim();
+
+  // Get secret from database
+  const result = await env.DB.prepare(
+    "SELECT secret FROM totp_secrets WHERE user_id = ? AND name = ?"
+  ).bind(userId, name).first() as any;
+
+  if (!result) {
+    return `❌ Secret "<b>${name}</b>" tidak ditemukan.
+
+📋 Lihat daftar: <code>/2fa list</code>`;
+  }
+
+  // Generate otpauth URI
+  const otpauthUri = `otpauth://totp/${encodeURIComponent(name)}?secret=${result.secret}&issuer=TempEmailBot`;
+  
+  // Use Google Chart API to generate QR code
+  const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl=${encodeURIComponent(otpauthUri)}&choe=UTF-8`;
+
+  return `🔳 <b>QR Code untuk: ${name}</b>
+
+📱 Scan QR code ini dengan app authenticator:
+<a href="${qrUrl}">📲 Lihat QR Code</a>
+
+🔗 <b>Manual entry:</b>
+<code>${result.secret}</code>
+
+⚠️ Link QR hanya untuk kamu. Jangan bagikan!`;
+}
+
 function getHelpMessage(domain: string): string {
   return `🎉 <b>Selamat datang di Temp Email Bot!</b>
 
@@ -907,13 +1168,24 @@ Simpan secret
 <b>/2fa list</b> atau <b>/a list</b>
 Lihat secret tersimpan
 
-<b>/2fa</b> <code>nama</code>
-Generate dari secret tersimpan
-→ <code>/a google</code>
+<b>/qr</b> <code>nama</code>
+QR code untuk authenticator
+→ <code>/qr google</code>
+
+<b>/backup</b>
+Backup semua 2FA secrets
+
+━━━ 👤 <b>AKUN</b> ━━━
+
+<b>/mystats</b> atau <b>/me</b>
+Statistik akunmu
+
+<b>/setting</b>
+Pengaturan (auto-delete, dll)
 
 ━━━ ⚡ <b>SHORTCUT</b> ━━━
-<code>/c</code> = create, <code>/m</code> = mails, <code>/r</code> = read
-<code>/s</code> = search, <code>/a</code> = 2fa`;
+<code>/c</code> create, <code>/m</code> mails, <code>/r</code> read
+<code>/s</code> search, <code>/a</code> 2fa, <code>/me</code> stats`;
 }
 
 async function handleCreate(env: Bindings, telegramUserId: string, name: string): Promise<string> {
