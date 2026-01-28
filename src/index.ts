@@ -16,6 +16,36 @@ app.post("/webhooks/telegram", async (c) => {
   const payload = await c.req.json();
   console.log("📨 Telegram webhook received:", JSON.stringify(payload));
 
+  // Handle callback queries (inline button clicks)
+  if (payload.callback_query) {
+    const callbackQuery = payload.callback_query;
+    const telegramUserId = String(callbackQuery.from.id);
+    const telegramUsername = callbackQuery.from.username || "";
+    const chatId = callbackQuery.message.chat.id;
+    const messageId = callbackQuery.message.message_id;
+    const callbackData = callbackQuery.data;
+
+    try {
+      await ensureUser(c.env.DB, telegramUserId, telegramUsername);
+      
+      // Answer callback query to remove loading state
+      await fetch(`https://api.telegram.org/bot${c.env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callback_query_id: callbackQuery.id })
+      });
+
+      // Process the callback
+      const result = await processCallback(c.env, telegramUserId, callbackData, chatId, messageId);
+      if (result) {
+        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, result);
+      }
+    } catch (error) {
+      console.error("Error processing callback:", error);
+    }
+    return c.text("OK", 200);
+  }
+
   if (!payload.message?.text) {
     return c.text("OK", 200);
   }
@@ -28,7 +58,11 @@ app.post("/webhooks/telegram", async (c) => {
   try {
     await ensureUser(c.env.DB, telegramUserId, telegramUsername);
     const response = await processCommand(c.env, telegramUserId, userMessage);
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, response);
+    if (typeof response === "object" && response.text) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, response.text, response.keyboard);
+    } else {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, response as string);
+    }
   } catch (error) {
     console.error("Error processing message:", error);
     await sendTelegramMessage(
@@ -170,12 +204,15 @@ Ketik <code>/mails ${toAddress.split("@")[0]}</code> untuk membaca.`;
   }
 }
 
+// Response type for commands with optional keyboard
+type CommandResponse = string | { text: string; keyboard?: any[][] };
+
 // ============ COMMAND PROCESSOR ============
 async function processCommand(
   env: Bindings,
   telegramUserId: string,
   message: string
-): Promise<string> {
+): Promise<CommandResponse> {
   console.log("🤖 Processing command:", { telegramUserId, message });
 
   const parts = message.split(/\s+/);
@@ -190,22 +227,27 @@ async function processCommand(
       return getHelpMessage(env.TEMP_EMAIL_DOMAIN);
 
     case "/create":
+    case "/c":
       return await handleCreate(env, telegramUserId, arg);
 
     case "/mails":
     case "/inbox":
+    case "/m":
       return await handleMails(env, telegramUserId, arg);
 
     case "/read":
+    case "/r":
       return await handleRead(env, telegramUserId, arg);
 
     case "/list":
+    case "/e":
       if (!isAdmin) {
         return `⛔ Perintah ini hanya untuk admin.`;
       }
       return await handleList(env, telegramUserId);
 
     case "/delete":
+    case "/d":
       if (!isAdmin) {
         return `⛔ Perintah ini hanya untuk admin.`;
       }
@@ -213,9 +255,11 @@ async function processCommand(
 
     case "/2fa":
     case "/otp":
+    case "/a":
       return await handle2FA(env, telegramUserId, arg);
 
     case "/search":
+    case "/s":
       return await handleSearch(env, telegramUserId, arg);
 
     case "/stats":
@@ -248,6 +292,38 @@ async function processCommand(
       return `❓ Perintah tidak dikenali.
 
 Ketik /start untuk melihat panduan.`;
+  }
+}
+
+// ============ CALLBACK HANDLER (for inline buttons) ============
+async function processCallback(
+  env: Bindings,
+  telegramUserId: string,
+  callbackData: string,
+  chatId: number,
+  messageId: number
+): Promise<string> {
+  const [action, ...params] = callbackData.split(":");
+  
+  switch (action) {
+    case "read":
+      // Read email: read:ID
+      return await handleRead(env, telegramUserId, params[0]);
+    
+    case "mails":
+      // Back to inbox: mails:emailName
+      return await handleMails(env, telegramUserId, params[0]);
+    
+    case "2fa":
+      // Generate 2FA: 2fa:name
+      return await handle2FA(env, telegramUserId, params[0]);
+    
+    case "refresh":
+      // Refresh 2FA code: refresh:name
+      return await handle2FA(env, telegramUserId, params[0]);
+    
+    default:
+      return "";
   }
 }
 
@@ -354,13 +430,25 @@ Contoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>`;
     }
 
     let response = `🔐 <b>Daftar 2FA Secret</b>\n\n`;
-    for (const item of result.results as any[]) {
+    const secrets = result.results as any[];
+    
+    for (const item of secrets) {
       response += `🔑 <b>${item.name}</b>\n`;
     }
     response += `\n━━━━━━━━━━━━━━━
-🔢 Generate: <code>/2fa nama</code>
-🗑️ Hapus: <code>/2fa del nama</code>`;
-    return response;
+👆 Tap tombol untuk generate kode`;
+
+    // Build keyboard with 2FA buttons (max 3 per row)
+    const keyboard: any[][] = [];
+    for (let i = 0; i < secrets.length; i += 3) {
+      const row = secrets.slice(i, i + 3).map((item: any) => ({
+        text: `🔢 ${item.name}`,
+        callback_data: `2fa:${item.name}`
+      }));
+      keyboard.push(row);
+    }
+
+    return { text: response, keyboard };
   }
 
   // /2fa del nama
@@ -790,42 +878,42 @@ Bot ini membantu kamu membuat email temporary dan mengelola kode 2FA.
 
 ━━━ 📧 <b>EMAIL</b> ━━━
 
-<b>/create</b> <code>nama</code>
+<b>/create</b> atau <b>/c</b> <code>nama</code>
 Buat email baru
-→ <code>/create tokoku</code>
+→ <code>/c tokoku</code>
 
-<b>/mails</b> <code>nama</code>
+<b>/mails</b> atau <b>/m</b> <code>nama</code>
 Cek inbox email
-→ <code>/mails tokoku</code>
+→ <code>/m tokoku</code>
 
-<b>/read</b> <code>id</code>
+<b>/read</b> atau <b>/r</b> <code>id</code>
 Baca isi email
-→ <code>/read 5</code>
+→ <code>/r 5</code>
 
-<b>/search</b> <code>kata</code>
+<b>/search</b> atau <b>/s</b> <code>kata</code>
 Cari email
-→ <code>/search verifikasi</code>
-
-<b>/forward</b> <code>id email</code>
-Forward email
-→ <code>/forward 5 user@gmail.com</code>
+→ <code>/s verifikasi</code>
 
 ━━━ 🔐 <b>2FA/OTP</b> ━━━
 
-<b>/2fa</b> <code>secret</code>
+<b>/2fa</b> atau <b>/a</b> <code>secret</code>
 Generate kode OTP
-→ <code>/2fa JBSWY3DPEHPK3PXP</code>
+→ <code>/a JBSWY3DPEHPK3PXP</code>
 
 <b>/2fa add</b> <code>nama secret</code>
 Simpan secret
-→ <code>/2fa add google SECRET</code>
+→ <code>/a add google SECRET</code>
 
-<b>/2fa list</b>
+<b>/2fa list</b> atau <b>/a list</b>
 Lihat secret tersimpan
 
 <b>/2fa</b> <code>nama</code>
 Generate dari secret tersimpan
-→ <code>/2fa google</code>`;
+→ <code>/a google</code>
+
+━━━ ⚡ <b>SHORTCUT</b> ━━━
+<code>/c</code> = create, <code>/m</code> = mails, <code>/r</code> = read
+<code>/s</code> = search, <code>/a</code> = 2fa`;
 }
 
 async function handleCreate(env: Bindings, telegramUserId: string, name: string): Promise<string> {
@@ -935,22 +1023,36 @@ Belum ada email masuk. Gunakan alamat di atas untuk menerima email.`;
 
 `;
 
-  for (const msg of result.results as any[]) {
+  // Build keyboard with read buttons (max 5 per row, max 3 rows)
+  const keyboard: any[][] = [];
+  const messages = result.results as any[];
+  
+  for (let i = 0; i < Math.min(messages.length, 15); i += 5) {
+    const row = messages.slice(i, i + 5).map((msg: any) => ({
+      text: `📖 ${msg.id}`,
+      callback_data: `read:${msg.id}`
+    }));
+    keyboard.push(row);
+  }
+
+  for (const msg of messages) {
     const status = msg.is_read ? "📖" : "📩";
     const subject = msg.subject || "(Tanpa subjek)";
-    response += `${status} <b>ID ${msg.id}</b>
-👤 ${msg.sender}
-📋 ${subject}
-⏰ ${msg.received_at}
-
+    const shortSubject = subject.length > 30 ? subject.substring(0, 30) + "..." : subject;
+    response += `${status} <b>ID ${msg.id}</b> - ${shortSubject}
 `;
   }
 
-  response += `━━━━━━━━━━━━━━━
-📖 Baca email: <code>/read ID</code>
-Contoh: <code>/read ${(result.results[0] as any).id}</code>`;
+  response += `
+━━━━━━━━━━━━━━━
+👆 Tap tombol di atas untuk baca email`;
 
-  return response;
+  const localPart = email.email_address.split("@")[0];
+  keyboard.push([
+    { text: "🔄 Refresh", callback_data: `mails:${localPart}` }
+  ]);
+
+  return { text: response, keyboard };
 }
 
 async function handleRead(env: Bindings, telegramUserId: string, messageId: string): Promise<string> {
@@ -1144,15 +1246,21 @@ async function getOrCreateAdminUser(db: D1Database, adminTelegramId: string): Pr
   return result?.id || 0;
 }
 
-async function sendTelegramMessage(botToken: string, chatId: number, text: string) {
+async function sendTelegramMessage(botToken: string, chatId: number, text: string, keyboard?: any) {
+  const body: any = {
+    chat_id: chatId,
+    text: text,
+    parse_mode: "HTML",
+  };
+  
+  if (keyboard) {
+    body.reply_markup = { inline_keyboard: keyboard };
+  }
+  
   const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: text,
-      parse_mode: "HTML",
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
