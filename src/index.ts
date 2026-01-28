@@ -378,7 +378,7 @@ function generateOTP(secret: string): { code: string; remaining: number } | null
   }
 }
 
-async function handle2FA(env: Bindings, telegramUserId: string, arg: string): Promise<string> {
+async function handle2FA(env: Bindings, telegramUserId: string, arg: string): Promise<CommandResponse> {
   const parts = arg.split(/\s+/);
   const subCommand = parts[0]?.toLowerCase();
   const param1 = parts[1] || "";
@@ -910,7 +910,7 @@ ${progress}
 
 // ============ SETTINGS HANDLER ============
 async function handleSettings(env: Bindings, telegramUserId: string, arg: string): Promise<CommandResponse> {
-  const userId = await getOrCreateUser(env, telegramUserId);
+  const userId = await getUserId(env.DB, telegramUserId);
   
   // Get current settings
   const user = await env.DB.prepare(
@@ -988,7 +988,7 @@ Gunakan: <code>/set autodelete HARI</code>`;
 
 // ============ MY STATS HANDLER ============
 async function handleMyStats(env: Bindings, telegramUserId: string): Promise<string> {
-  const userId = await getOrCreateUser(env, telegramUserId);
+  const userId = await getUserId(env.DB, telegramUserId);
 
   // Get user info and settings
   const user = await env.DB.prepare(
@@ -1053,7 +1053,7 @@ ${user?.telegram_username ? `📛 <b>Username:</b> @${user.telegram_username}` :
 
 // ============ BACKUP HANDLER ============
 async function handleBackup(env: Bindings, telegramUserId: string): Promise<string> {
-  const userId = await getOrCreateUser(env, telegramUserId);
+  const userId = await getUserId(env.DB, telegramUserId);
 
   // Get all 2FA secrets
   const secrets = await env.DB.prepare(
@@ -1101,7 +1101,7 @@ Contoh: <code>/qr google</code>
 Ini akan generate QR code untuk secret tersimpan.`;
   }
 
-  const userId = await getOrCreateUser(env, telegramUserId);
+  const userId = await getUserId(env.DB, telegramUserId);
   const name = arg.toLowerCase().trim();
 
   // Get secret from database
@@ -1236,7 +1236,7 @@ Gunakan alamat ini untuk menerima email. Ketika ada email masuk, kamu akan menda
 📬 Cek inbox: <code>/mails ${localPart}</code>`;
 }
 
-async function handleMails(env: Bindings, telegramUserId: string, identifier: string): Promise<string> {
+async function handleMails(env: Bindings, telegramUserId: string, identifier: string): Promise<CommandResponse> {
   if (!identifier) {
     return `⚠️ Masukkan nama email yang ingin dicek.
 
