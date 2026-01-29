@@ -262,7 +262,7 @@ async function processCommand(
   switch (command) {
     case "/start":
     case "/help":
-      return getHelpMessage(getDomains(env));
+      return getHelpMessage(getDomains(env), isAdmin);
 
     case "/create":
     case "/c":
@@ -1198,13 +1198,13 @@ Ini akan generate QR code untuk secret tersimpan.`;
   return "";
 }
 
-function getHelpMessage(domains: string[]): string {
+function getHelpMessage(domains: string[], isAdmin: boolean): string {
   const defaultDomain = domains[0] || "example.com";
   const multiDomainInfo = domains.length > 1 
     ? `\n<b>/domains</b> - Lihat domain tersedia` 
     : "";
   
-  return `🎉 <b>Selamat datang di Temp Email Bot!</b>
+  let message = `🎉 <b>Selamat datang di Temp Email Bot!</b>
 
 Bot ini membantu kamu membuat email temporary dan mengelola kode 2FA.
 
@@ -1257,6 +1257,35 @@ Pengaturan (auto-delete, dll)
 ━━━ ⚡ <b>SHORTCUT</b> ━━━
 <code>/c</code> create, <code>/m</code> mails, <code>/r</code> read
 <code>/s</code> search, <code>/a</code> 2fa, <code>/me</code> stats`;
+
+  if (isAdmin) {
+    message += `
+
+━━━ 🔧 <b>ADMIN</b> ━━━
+
+<b>/list</b> atau <b>/e</b>
+Lihat semua email terdaftar
+
+<b>/stats</b>
+Statistik bot
+
+<b>/blacklist</b> <code>add/del/list</code>
+Kelola pengirim yang diblokir
+→ <code>/blacklist add spam@evil.com</code>
+
+<b>/cleanup</b>
+Hapus email lama (sesuai setting user)
+
+<b>/delete</b> atau <b>/d</b> <code>nama</code>
+Hapus alamat email
+→ <code>/d tokoku</code>
+
+<b>/broadcast</b> atau <b>/bc</b> <code>pesan</code>
+Kirim pesan ke semua user
+→ <code>/bc Maintenance jam 10</code>`;
+  }
+
+  return message;
 }
 
 async function handleCreate(env: Bindings, telegramUserId: string, name: string): Promise<CommandResponse> {
