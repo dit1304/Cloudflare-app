@@ -11,6 +11,44 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+// Helper function to get list of domains
+function getDomains(env: Bindings): string[] {
+  return env.TEMP_EMAIL_DOMAIN.split(",").map(d => d.trim()).filter(d => d.length > 0);
+}
+
+// Handle /domains command
+function handleDomains(env: Bindings): string {
+  const domains = getDomains(env);
+  
+  if (domains.length === 0) {
+    return `❌ Tidak ada domain yang dikonfigurasi.`;
+  }
+  
+  if (domains.length === 1) {
+    return `🌐 <b>Domain Tersedia</b>
+
+📧 <code>${domains[0]}</code>
+
+Buat email: <code>/create nama</code>`;
+  }
+  
+  let response = `🌐 <b>Domain Tersedia</b>\n\n`;
+  domains.forEach((domain, index) => {
+    const badge = index === 0 ? " ⭐ (default)" : "";
+    response += `📧 <code>${domain}</code>${badge}\n`;
+  });
+  
+  response += `\n━━━━━━━━━━━━━━━
+Buat email dengan domain tertentu:
+<code>/create nama@${domains[0]}</code>`;
+  
+  if (domains.length >= 2) {
+    response += `\n<code>/create nama@${domains[1]}</code>`;
+  }
+  
+  return response;
+}
+
 // ============ TELEGRAM WEBHOOK ============
 app.post("/webhooks/telegram", async (c) => {
   const payload = await c.req.json();
@@ -224,7 +262,7 @@ async function processCommand(
   switch (command) {
     case "/start":
     case "/help":
-      return getHelpMessage(env.TEMP_EMAIL_DOMAIN);
+      return getHelpMessage(getDomains(env));
 
     case "/create":
     case "/c":
@@ -303,6 +341,9 @@ async function processCommand(
     case "/qr":
       return await handleQR(env, telegramUserId, arg);
 
+    case "/domains":
+      return handleDomains(env);
+
     default:
       return `❓ Perintah tidak dikenali.
 
@@ -351,6 +392,14 @@ async function processCallback(
         return typeof result === 'string' ? result : result.text;
       }
       return "";
+    
+    case "create": {
+      // Create email with selected domain: create:localpart:domain
+      const localPart = params[0];
+      const domain = params[1];
+      const result = await handleCreate(env, telegramUserId, `${localPart}@${domain}`);
+      return typeof result === 'string' ? result : result.text;
+    }
     
     default:
       return "";
@@ -1149,7 +1198,12 @@ Ini akan generate QR code untuk secret tersimpan.`;
   return "";
 }
 
-function getHelpMessage(domain: string): string {
+function getHelpMessage(domains: string[]): string {
+  const defaultDomain = domains[0] || "example.com";
+  const multiDomainInfo = domains.length > 1 
+    ? `\n<b>/domains</b> - Lihat domain tersedia` 
+    : "";
+  
   return `🎉 <b>Selamat datang di Temp Email Bot!</b>
 
 Bot ini membantu kamu membuat email temporary dan mengelola kode 2FA.
@@ -1157,8 +1211,8 @@ Bot ini membantu kamu membuat email temporary dan mengelola kode 2FA.
 ━━━ 📧 <b>EMAIL</b> ━━━
 
 <b>/create</b> atau <b>/c</b> <code>nama</code>
-Buat email baru
-→ <code>/c tokoku</code>
+Buat email baru (→ <code>nama@${defaultDomain}</code>)
+→ <code>/c tokoku</code>${multiDomainInfo}
 
 <b>/mails</b> atau <b>/m</b> <code>nama</code>
 Cek inbox email
@@ -1205,15 +1259,52 @@ Pengaturan (auto-delete, dll)
 <code>/s</code> search, <code>/a</code> 2fa, <code>/me</code> stats`;
 }
 
-async function handleCreate(env: Bindings, telegramUserId: string, name: string): Promise<string> {
+async function handleCreate(env: Bindings, telegramUserId: string, name: string): Promise<CommandResponse> {
+  const domains = getDomains(env);
+  
+  if (domains.length === 0) {
+    return `❌ Error: Tidak ada domain yang dikonfigurasi. Hubungi admin.`;
+  }
+  
+  const defaultDomain = domains[0];
+
   if (!name) {
+    let example = `<code>/create tokoku</code>`;
+    if (domains.length > 1) {
+      example += `\n<code>/create tokoku@${domains[1]}</code> (pilih domain)`;
+    }
     return `⚠️ Masukkan nama untuk email.
 
-Contoh: <code>/create tokoku</code>
-→ Akan membuat <code>tokoku@${env.TEMP_EMAIL_DOMAIN}</code>`;
+Contoh: ${example}
+→ Akan membuat <code>tokoku@${defaultDomain}</code>`;
   }
 
-  const localPart = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Parse name@domain format
+  let localPart: string;
+  let selectedDomain: string;
+  
+  if (name.includes("@")) {
+    const parts = name.split("@");
+    localPart = parts[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+    const requestedDomain = parts[1]?.toLowerCase().trim();
+    
+    // Check if domain is valid
+    if (requestedDomain && domains.map(d => d.toLowerCase()).includes(requestedDomain)) {
+      selectedDomain = requestedDomain;
+    } else if (requestedDomain) {
+      return `⚠️ Domain <b>${requestedDomain}</b> tidak tersedia.
+
+📋 Domain tersedia:
+${domains.map(d => `• <code>${d}</code>`).join("\n")}
+
+Contoh: <code>/create ${localPart}@${defaultDomain}</code>`;
+    } else {
+      selectedDomain = defaultDomain;
+    }
+  } else {
+    localPart = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    selectedDomain = defaultDomain;
+  }
   
   if (localPart.length < 3) {
     return `⚠️ Nama email minimal 3 karakter (huruf dan angka saja).`;
@@ -1223,7 +1314,20 @@ Contoh: <code>/create tokoku</code>
     return `⚠️ Nama email maksimal 30 karakter.`;
   }
 
-  const emailAddress = `${localPart}@${env.TEMP_EMAIL_DOMAIN}`;
+  // If multiple domains and no domain specified, show keyboard
+  if (domains.length > 1 && !name.includes("@")) {
+    const keyboard = domains.map(domain => [{
+      text: `📧 ${localPart}@${domain}`,
+      callback_data: `create:${localPart}:${domain}`
+    }]);
+    
+    return {
+      text: `📧 <b>Pilih domain untuk: ${localPart}</b>\n\n👇 Tap untuk memilih:`,
+      keyboard
+    };
+  }
+
+  const emailAddress = `${localPart}@${selectedDomain}`;
 
   const existing = await env.DB.prepare("SELECT id FROM emails WHERE email_address = ?")
     .bind(emailAddress)
