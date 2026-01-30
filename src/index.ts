@@ -1387,6 +1387,9 @@ Gunakan alamat ini untuk menerima email. Ketika ada email masuk, kamu akan menda
 }
 
 async function handleMails(env: Bindings, telegramUserId: string, identifier: string): Promise<CommandResponse> {
+  const domains = getDomains(env);
+  const defaultDomain = domains[0] || "example.com";
+  
   if (!identifier) {
     return `⚠️ Masukkan nama email yang ingin dicek.
 
@@ -1396,9 +1399,28 @@ Contoh: <code>/mails tokoku</code>
   }
 
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
-  const emailAddress = identifier.includes("@")
-    ? identifier.toLowerCase()
-    : `${identifier.toLowerCase()}@${env.TEMP_EMAIL_DOMAIN}`;
+  
+  // Support both "nama" and "nama@domain" formats
+  let emailAddress: string;
+  if (identifier.includes("@")) {
+    emailAddress = identifier.toLowerCase();
+  } else {
+    // Try to find email with this name in any domain (user's own emails)
+    const userId = await getUserId(env.DB, telegramUserId);
+    if (userId) {
+      const found = await env.DB.prepare(
+        "SELECT email_address FROM emails WHERE user_id = ? AND LOWER(email_address) LIKE ? AND is_active = 1"
+      ).bind(userId, `${identifier.toLowerCase()}@%`).first<{ email_address: string }>();
+      
+      if (found) {
+        emailAddress = found.email_address;
+      } else {
+        emailAddress = `${identifier.toLowerCase()}@${defaultDomain}`;
+      }
+    } else {
+      emailAddress = `${identifier.toLowerCase()}@${defaultDomain}`;
+    }
+  }
 
   let email;
   if (isAdmin) {
