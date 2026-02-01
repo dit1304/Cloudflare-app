@@ -2267,17 +2267,35 @@ function extractMimePart(rawEmail: string, contentType: string): string | null {
   return content;
 }
 
+function isBase64(str: string): boolean {
+  // Check if string looks like base64 (only valid base64 chars, length divisible by 4)
+  const clean = str.replace(/[\r\n\s]/g, '');
+  if (clean.length < 50 || clean.length % 4 !== 0) return false;
+  return /^[A-Za-z0-9+/]+=*$/.test(clean);
+}
+
 function extractEmailBody(rawEmail: string): string {
   // Try to extract plain text content first (preferred)
   const plainText = extractMimePart(rawEmail, 'text/plain');
   if (plainText && plainText.trim().length > 20) {
-    return plainText.trim().substring(0, 4000);
+    // Check if it's actually base64 that wasn't decoded
+    const trimmed = plainText.trim();
+    if (isBase64(trimmed)) {
+      const decoded = decodeBase64(trimmed);
+      return stripHtml(decoded).substring(0, 4000);
+    }
+    return trimmed.substring(0, 4000);
   }
   
   // Try HTML content
   const htmlContent = extractMimePart(rawEmail, 'text/html');
   if (htmlContent && htmlContent.trim().length > 0) {
-    const stripped = stripHtml(htmlContent);
+    let content = htmlContent.trim();
+    // Check if it's base64 encoded
+    if (isBase64(content)) {
+      content = decodeBase64(content);
+    }
+    const stripped = stripHtml(content);
     if (stripped.trim().length > 20) {
       return stripped.trim().substring(0, 4000);
     }
@@ -2295,6 +2313,11 @@ function extractEmailBody(rawEmail: string): string {
     .replace(/Content-Disposition:[^\n]*/gi, '')
     .replace(/charset="?[^"\s]*"?/gi, '')
     .trim();
+  
+  // Check if remaining body is base64
+  if (isBase64(body)) {
+    body = decodeBase64(body);
+  }
   
   return stripHtml(body).substring(0, 4000);
 }
