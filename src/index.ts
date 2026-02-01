@@ -64,7 +64,7 @@ app.post("/webhooks/telegram", async (c) => {
     const callbackData = callbackQuery.data;
 
     try {
-      await ensureUser(c.env.DB, telegramUserId, telegramUsername);
+      await ensureUser(c.env.DB, telegramUserId, telegramUsername, c.env);
       
       // Answer callback query to remove loading state
       await fetch(`https://api.telegram.org/bot${c.env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
@@ -94,7 +94,7 @@ app.post("/webhooks/telegram", async (c) => {
   const userMessage = payload.message.text.trim();
 
   try {
-    await ensureUser(c.env.DB, telegramUserId, telegramUsername);
+    await ensureUser(c.env.DB, telegramUserId, telegramUsername, c.env);
     const response = await processCommand(c.env, telegramUserId, userMessage);
     if (typeof response === "object" && response.text) {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, response.text, response.keyboard);
@@ -333,6 +333,13 @@ async function processCommand(
       }
       return await handleUsers(env, arg);
 
+    case "/premium":
+    case "/p":
+      if (!isAdmin) {
+        return `⛔ Perintah ini hanya untuk admin.`;
+      }
+      return await handlePremium(env, arg);
+
     case "/setting":
     case "/settings":
     case "/set":
@@ -458,6 +465,28 @@ Contoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>`;
     // Validate secret
     if (!generateOTP(secret)) {
       return `❌ Secret key tidak valid. Pastikan format Base32 benar.`;
+    }
+
+    // Check premium limits for 2FA
+    const isAdmin = telegramUserId === env.ADMIN_USER_ID;
+    if (!isAdmin) {
+      // Check if this is a new secret (not update)
+      const existingSecret = await env.DB.prepare(
+        "SELECT id FROM totp_secrets WHERE user_id = ? AND name = ?"
+      ).bind(userId, name).first();
+      
+      if (!existingSecret) {
+        const limits = await checkUserLimits(env.DB, telegramUserId, '2fa');
+        if (!limits.allowed) {
+          return `⚠️ <b>Batas 2FA Secret Tercapai</b>
+
+Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
+
+🗑️ Hapus secret lama dengan <code>/2fa del nama</code>
+
+⭐ Atau upgrade ke <b>Premium</b> untuk unlimited 2FA secrets!`;
+        }
+      }
     }
 
     try {
@@ -1042,6 +1071,126 @@ Email yang lebih tua dari ${days} hari akan otomatis dihapus saat cleanup.`;
 Gunakan: <code>/set autodelete HARI</code>`;
 }
 
+// ============ PREMIUM HANDLER (admin only) ============
+async function handlePremium(env: Bindings, arg: string): Promise<string> {
+  const parts = arg.split(/\s+/);
+  const subCommand = parts[0]?.toLowerCase();
+  const targetId = parts[1] || "";
+
+  // /premium list - show all premium users
+  if (!arg || subCommand === "list") {
+    const result = await env.DB.prepare(`
+      SELECT telegram_user_id, telegram_username, created_at 
+      FROM users WHERE is_premium = 1 ORDER BY created_at DESC
+    `).all();
+
+    if (!result.results || result.results.length === 0) {
+      return `📭 Belum ada user premium.
+
+➕ Tambah: <code>/premium add TELEGRAM_ID</code>`;
+    }
+
+    let response = `⭐ <b>Daftar User Premium</b>\n\n`;
+    for (const user of result.results as any[]) {
+      const username = user.telegram_username ? `@${user.telegram_username}` : "(no username)";
+      response += `👤 ${username}\n   ID: <code>${user.telegram_user_id}</code>\n\n`;
+    }
+    response += `━━━━━━━━━━━━━━━
+➕ Tambah: <code>/premium add ID</code>
+➖ Hapus: <code>/premium del ID</code>`;
+    return response;
+  }
+
+  // /premium add ID
+  if (subCommand === "add" || subCommand === "set") {
+    if (!targetId) {
+      return `⚠️ Format: <code>/premium add TELEGRAM_ID</code>`;
+    }
+
+    const user = await env.DB.prepare(
+      "SELECT id, telegram_username FROM users WHERE telegram_user_id = ?"
+    ).bind(targetId).first<{ id: number; telegram_username: string }>();
+
+    if (!user) {
+      return `❌ User dengan ID <code>${targetId}</code> tidak ditemukan.`;
+    }
+
+    await env.DB.prepare("UPDATE users SET is_premium = 1 WHERE telegram_user_id = ?").bind(targetId).run();
+
+    const username = user.telegram_username ? `@${user.telegram_username}` : "(no username)";
+    
+    // Notify user about premium upgrade
+    try {
+      await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, parseInt(targetId), 
+        `🎉 <b>Selamat!</b>\n\nAkun kamu telah di-upgrade ke <b>Premium</b>!\n\n⭐ Benefit:\n• Unlimited email\n• Unlimited 2FA secrets\n• Unlimited inbox\n• Prioritas support`);
+    } catch (e) {
+      console.error("Failed to notify user:", e);
+    }
+
+    return `✅ User ${username} (<code>${targetId}</code>) sekarang <b>Premium</b>!`;
+  }
+
+  // /premium del ID
+  if (subCommand === "del" || subCommand === "rm" || subCommand === "remove") {
+    if (!targetId) {
+      return `⚠️ Format: <code>/premium del TELEGRAM_ID</code>`;
+    }
+
+    const result = await env.DB.prepare(
+      "UPDATE users SET is_premium = 0 WHERE telegram_user_id = ?"
+    ).bind(targetId).run();
+
+    if (result.meta.changes === 0) {
+      return `❌ User dengan ID <code>${targetId}</code> tidak ditemukan.`;
+    }
+
+    return `✅ Status premium user <code>${targetId}</code> dicabut.`;
+  }
+
+  // /premium check ID
+  if (subCommand === "check" || subCommand === "info") {
+    if (!targetId) {
+      return `⚠️ Format: <code>/premium check TELEGRAM_ID</code>`;
+    }
+
+    const user = await env.DB.prepare(`
+      SELECT telegram_username, is_premium,
+        (SELECT COUNT(*) FROM emails WHERE user_id = users.id) as email_count,
+        (SELECT COUNT(*) FROM totp_secrets WHERE user_id = users.id) as totp_count
+      FROM users WHERE telegram_user_id = ?
+    `).bind(targetId).first<any>();
+
+    if (!user) {
+      return `❌ User dengan ID <code>${targetId}</code> tidak ditemukan.`;
+    }
+
+    const username = user.telegram_username ? `@${user.telegram_username}` : "(no username)";
+    const status = user.is_premium === 1 ? "⭐ Premium" : "👤 Free";
+    const limits = user.is_premium === 1 
+      ? "Unlimited" 
+      : `${user.email_count}/${LIMITS.FREE_MAX_EMAILS} email, ${user.totp_count}/${LIMITS.FREE_MAX_2FA} 2FA`;
+
+    return `👤 <b>Info User</b>
+
+${username}
+ID: <code>${targetId}</code>
+Status: ${status}
+Usage: ${limits}`;
+  }
+
+  return `⭐ <b>Premium Management</b>
+
+<code>/premium list</code> - Lihat semua premium user
+<code>/premium add ID</code> - Jadikan user premium
+<code>/premium del ID</code> - Cabut status premium
+<code>/premium check ID</code> - Cek status user
+
+📊 Limit Free User:
+• Max ${LIMITS.FREE_MAX_EMAILS} email
+• Max ${LIMITS.FREE_MAX_2FA} 2FA secrets
+• Max ${LIMITS.FREE_MAX_INBOX} inbox`;
+}
+
 // ============ USERS HANDLER (admin only) ============
 async function handleUsers(env: Bindings, arg: string): Promise<string> {
   const page = parseInt(arg) || 1;
@@ -1349,7 +1498,11 @@ Kirim pesan ke semua user
 
 <b>/users</b> atau <b>/u</b>
 Lihat daftar semua pengguna bot
-→ <code>/u 2</code> (halaman 2)`;
+→ <code>/u 2</code> (halaman 2)
+
+<b>/premium</b> atau <b>/p</b>
+Kelola status premium user
+→ <code>/p add 123456789</code>`;
   }
 
   return message;
@@ -1438,6 +1591,22 @@ Coba nama lain, contoh: <code>/create ${localPart}123</code>`;
   const userId = await getUserId(env.DB, telegramUserId);
   if (!userId) {
     return `❌ Error: User tidak ditemukan.`;
+  }
+
+  // Check premium limits
+  const isAdmin = telegramUserId === env.ADMIN_USER_ID;
+  if (!isAdmin) {
+    const limits = await checkUserLimits(env.DB, telegramUserId, 'email');
+    if (!limits.allowed) {
+      return `⚠️ <b>Batas Email Tercapai</b>
+
+Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> email.
+
+🗑️ Hapus email lama dengan <code>/delete nama</code>
+
+⭐ Atau upgrade ke <b>Premium</b> untuk unlimited email!
+Hubungi admin untuk info lebih lanjut.`;
+    }
   }
 
   await env.DB.prepare("INSERT INTO emails (user_id, email_address, local_part) VALUES (?, ?, ?)")
@@ -1717,7 +1886,7 @@ Contoh: <code>/delete tokoku</code>`;
 }
 
 // ============ HELPERS ============
-async function ensureUser(db: D1Database, telegramUserId: string, username?: string) {
+async function ensureUser(db: D1Database, telegramUserId: string, username?: string, env?: Bindings): Promise<{ isNew: boolean }> {
   const existing = await db
     .prepare("SELECT id FROM users WHERE telegram_user_id = ?")
     .bind(telegramUserId)
@@ -1728,7 +1897,35 @@ async function ensureUser(db: D1Database, telegramUserId: string, username?: str
       .prepare("INSERT INTO users (telegram_user_id, telegram_username) VALUES (?, ?)")
       .bind(telegramUserId, username || null)
       .run();
+    
+    // Notify admin about new user (Login Alert)
+    if (env && env.ADMIN_USER_ID && telegramUserId !== env.ADMIN_USER_ID) {
+      const usernameDisplay = username ? `@${username}` : "(no username)";
+      const alertText = `🆕 <b>User Baru Bergabung!</b>
+
+👤 ${usernameDisplay}
+🆔 ID: <code>${telegramUserId}</code>
+📅 Waktu: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}`;
+      
+      try {
+        await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, parseInt(env.ADMIN_USER_ID), alertText);
+      } catch (e) {
+        console.error("Failed to send new user alert:", e);
+      }
+    }
+    
+    return { isNew: true };
   }
+  
+  // Update username if changed
+  if (username) {
+    await db
+      .prepare("UPDATE users SET telegram_username = ? WHERE telegram_user_id = ?")
+      .bind(username, telegramUserId)
+      .run();
+  }
+  
+  return { isNew: false };
 }
 
 async function getUserId(db: D1Database, telegramUserId: string): Promise<number | null> {
@@ -1737,6 +1934,55 @@ async function getUserId(db: D1Database, telegramUserId: string): Promise<number
     .bind(telegramUserId)
     .first<{ id: number }>();
   return user?.id || null;
+}
+
+// Premium limits (inbox is soft limit - handled by auto-cleanup)
+const LIMITS = {
+  FREE_MAX_EMAILS: 3,
+  FREE_MAX_2FA: 5,
+  FREE_MAX_INBOX: 50, // Soft limit - shows warning, auto-cleaned on /cleanup
+};
+
+async function checkPremiumStatus(db: D1Database, telegramUserId: string): Promise<{ isPremium: boolean; userId: number | null }> {
+  const user = await db
+    .prepare("SELECT id, is_premium FROM users WHERE telegram_user_id = ?")
+    .bind(telegramUserId)
+    .first<{ id: number; is_premium: number }>();
+  return { 
+    isPremium: user?.is_premium === 1, 
+    userId: user?.id || null 
+  };
+}
+
+async function checkUserLimits(db: D1Database, telegramUserId: string, type: 'email' | '2fa' | 'inbox'): Promise<{ allowed: boolean; current: number; max: number; isPremium: boolean }> {
+  const { isPremium, userId } = await checkPremiumStatus(db, telegramUserId);
+  
+  if (isPremium || !userId) {
+    return { allowed: true, current: 0, max: -1, isPremium };
+  }
+  
+  let current = 0;
+  let max = 0;
+  
+  switch (type) {
+    case 'email':
+      const emailCount = await db.prepare("SELECT COUNT(*) as count FROM emails WHERE user_id = ?").bind(userId).first<{ count: number }>();
+      current = emailCount?.count || 0;
+      max = LIMITS.FREE_MAX_EMAILS;
+      break;
+    case '2fa':
+      const tfaCount = await db.prepare("SELECT COUNT(*) as count FROM totp_secrets WHERE user_id = ?").bind(userId).first<{ count: number }>();
+      current = tfaCount?.count || 0;
+      max = LIMITS.FREE_MAX_2FA;
+      break;
+    case 'inbox':
+      const inboxCount = await db.prepare("SELECT COUNT(*) as count FROM inbox i JOIN emails e ON i.email_id = e.id WHERE e.user_id = ?").bind(userId).first<{ count: number }>();
+      current = inboxCount?.count || 0;
+      max = LIMITS.FREE_MAX_INBOX;
+      break;
+  }
+  
+  return { allowed: current < max, current, max, isPremium };
 }
 
 async function getOrCreateAdminUser(db: D1Database, adminTelegramId: string): Promise<number> {
