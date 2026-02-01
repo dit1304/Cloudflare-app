@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
 [vars]
-TEMP_EMAIL_DOMAIN = "zerostore.tech,zerostore.dev"
+TEMP_EMAIL_DOMAIN = "zerostore.tech,zerostore.dev,kembarwifi.xyz"
 ADMIN_USER_ID = "1462157376"
 FALLBACK_EMAIL = "didit.pamuji@gmail.com"
 
