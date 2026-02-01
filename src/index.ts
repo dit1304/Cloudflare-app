@@ -356,7 +356,7 @@ Ketik <code>/mails ${toAddress.split("@")[0]}</code> untuk membaca.`;
 }
 
 // Response type for commands with optional keyboard
-type CommandResponse = string | { text: string; keyboard?: any[][] };
+type CommandResponse = string | { text: string; keyboard?: any };
 
 // ============ COMMAND PROCESSOR ============
 async function processCommand(
@@ -2201,7 +2201,12 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
   };
   
   if (keyboard) {
-    body.reply_markup = { inline_keyboard: keyboard };
+    // Handle both formats: { inline_keyboard: [...] } or just [...]
+    if (keyboard.inline_keyboard) {
+      body.reply_markup = keyboard;
+    } else {
+      body.reply_markup = { inline_keyboard: keyboard };
+    }
   }
   
   const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
