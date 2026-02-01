@@ -2220,57 +2220,121 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
   }
 }
 
-function extractEmailBody(rawEmail: string): string {
-  // Try to extract plain text content between boundaries
-  // Pattern: after "text/plain" ... before next boundary
-  const plainTextMatch = rawEmail.match(/Content-Type:\s*text\/plain[^]*?charset="?[^"]*"?\s*([\s\S]*?)(?=--[0-9a-f]+|$)/i);
+function decodeQuotedPrintable(str: string): string {
+  return str
+    .replace(/=\r?\n/g, '') // Remove soft line breaks
+    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function decodeBase64(str: string): string {
+  try {
+    // Clean the string - remove line breaks and whitespace
+    const clean = str.replace(/[\r\n\s]/g, '');
+    return atob(clean);
+  } catch {
+    return str;
+  }
+}
+
+function extractMimePart(rawEmail: string, contentType: string): string | null {
+  // Find the content type section
+  const regex = new RegExp(
+    `Content-Type:\\s*${contentType}[^\\r\\n]*[\\r\\n]+` +
+    `(?:Content-Transfer-Encoding:\\s*([^\\r\\n]+)[\\r\\n]+)?` +
+    `(?:[^\\r\\n]+:[^\\r\\n]*[\\r\\n]+)*` + // Other headers
+    `[\\r\\n]+` + // Empty line before content
+    `([\\s\\S]*?)` + // Content
+    `(?=--[\\w-]+|$)`, // Until boundary or end
+    'i'
+  );
   
-  if (plainTextMatch && plainTextMatch[1]) {
-    const content = plainTextMatch[1]
-      .replace(/Content-Transfer-Encoding:[^\n]*/gi, '')
-      .replace(/--[0-9a-f]+[^\n]*/gi, '')
-      .replace(/Content-Type:[^\n]*/gi, '')
-      .trim();
-    if (content && content.length > 0) {
-      return stripHtml(content);
-    }
+  const match = rawEmail.match(regex);
+  if (!match) return null;
+  
+  const encoding = (match[1] || '').toLowerCase().trim();
+  let content = match[2] || '';
+  
+  // Remove any remaining boundaries
+  content = content.replace(/--[\w-]+--?\s*$/g, '').trim();
+  
+  // Decode based on encoding
+  if (encoding === 'base64') {
+    content = decodeBase64(content);
+  } else if (encoding === 'quoted-printable') {
+    content = decodeQuotedPrintable(content);
+  }
+  
+  return content;
+}
+
+function extractEmailBody(rawEmail: string): string {
+  // Try to extract plain text content first (preferred)
+  const plainText = extractMimePart(rawEmail, 'text/plain');
+  if (plainText && plainText.trim().length > 20) {
+    return plainText.trim().substring(0, 4000);
   }
   
   // Try HTML content
-  const htmlMatch = rawEmail.match(/Content-Type:\s*text\/html[^]*?charset="?[^"]*"?\s*([\s\S]*?)(?=--[0-9a-f]+|$)/i);
-  
-  if (htmlMatch && htmlMatch[1]) {
-    const content = htmlMatch[1]
-      .replace(/Content-Transfer-Encoding:[^\n]*/gi, '')
-      .replace(/--[0-9a-f]+[^\n]*/gi, '')
-      .replace(/Content-Type:[^\n]*/gi, '')
-      .trim();
-    if (content && content.length > 0) {
-      return stripHtml(content);
+  const htmlContent = extractMimePart(rawEmail, 'text/html');
+  if (htmlContent && htmlContent.trim().length > 0) {
+    const stripped = stripHtml(htmlContent);
+    if (stripped.trim().length > 20) {
+      return stripped.trim().substring(0, 4000);
     }
   }
   
-  // Fallback: remove all MIME headers and boundaries
-  let body = rawEmail
-    .replace(/^[\s\S]*?\r?\n\r?\n/, '') // Remove email headers
-    .replace(/--[0-9a-f]{20,}[^\n]*/gi, '') // Remove boundaries
+  // Fallback: try to find any readable content
+  // Remove email headers (everything before first empty line)
+  let body = rawEmail.replace(/^[\s\S]*?\r?\n\r?\n/, '');
+  
+  // Remove MIME boundaries and headers
+  body = body
+    .replace(/--[\w-]+[^\n]*/g, '')
     .replace(/Content-Type:[^\n]*/gi, '')
     .replace(/Content-Transfer-Encoding:[^\n]*/gi, '')
+    .replace(/Content-Disposition:[^\n]*/gi, '')
     .replace(/charset="?[^"\s]*"?/gi, '')
     .trim();
   
-  return stripHtml(body);
+  return stripHtml(body).substring(0, 4000);
 }
 
 function stripHtml(html: string): string {
   return html
+    // Remove DOCTYPE
+    .replace(/<!DOCTYPE[^>]*>/gi, '')
+    // Remove comments
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Remove style tags and content
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    // Remove script tags and content
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    // Remove head section
+    .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
+    // Convert <br> and </p> to newlines
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    // Remove all remaining HTML tags
     .replace(/<[^>]+>/g, '')
+    // Decode HTML entities
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    // Clean up whitespace
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/^ +| +$/gm, '')
+    .trim()
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/=\r?\n/g, '') // Quoted-printable soft line breaks
