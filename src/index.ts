@@ -9,6 +9,119 @@ type Bindings = {
   FALLBACK_EMAIL: string;
 };
 
+type Language = "id" | "en";
+
+const TRANSLATIONS = {
+  id: {
+    welcome_choose_lang: `🌍 <b>Pilih Bahasa / Choose Language</b>
+
+Silakan pilih bahasa yang ingin kamu gunakan:
+Please select your preferred language:`,
+    lang_set: "✅ Bahasa berhasil diubah ke Bahasa Indonesia!",
+    welcome_title: "🎉 <b>Selamat datang di Temp Email Bot!</b>",
+    welcome_desc: "Bot ini membantu kamu membuat email temporary dan mengelola kode 2FA.",
+    email_section: "📧 <b>EMAIL</b>",
+    create_desc: "Buat email baru",
+    create_example: "→",
+    mails_desc: "Cek inbox email",
+    read_desc: "Baca isi email",
+    search_desc: "Cari email",
+    twofa_section: "🔐 <b>2FA/OTP</b>",
+    twofa_desc: "Generate kode OTP",
+    twofa_add_desc: "Simpan secret",
+    twofa_list_desc: "Lihat secret tersimpan",
+    qr_desc: "QR code untuk authenticator",
+    backup_desc: "Backup semua 2FA secrets",
+    account_section: "👤 <b>AKUN</b>",
+    mystats_desc: "Statistik akunmu",
+    settings_desc: "Pengaturan (auto-delete, dll)",
+    lang_desc: "Ganti bahasa",
+    shortcuts: "⚡ <b>SHORTCUT</b>",
+    admin_section: "🔧 <b>ADMIN</b>",
+    list_desc: "Lihat semua email terdaftar",
+    stats_desc: "Statistik bot",
+    blacklist_desc: "Kelola pengirim yang diblokir",
+    cleanup_desc: "Hapus email lama (sesuai setting user)",
+    delete_desc: "Hapus alamat email",
+    broadcast_desc: "Kirim pesan ke semua user",
+    users_desc: "Lihat daftar user",
+    premium_desc: "Kelola user premium",
+    domains_desc: "Lihat domain tersedia",
+    cmd_not_found: "❓ Perintah tidak dikenali.\n\nKetik /start untuk melihat panduan.",
+    user_not_found: "❌ Error: User tidak ditemukan.",
+    admin_only: "⛔ Perintah ini hanya untuk admin.",
+    enter_email_name: "⚠️ Masukkan nama email yang ingin dicek.",
+    example: "Contoh",
+    see_all_emails: "📋 Lihat semua email",
+    email_not_found: "⚠️ Email tidak ditemukan.",
+    no_emails: "📭 Belum ada email masuk.",
+    from: "Dari",
+    subject: "Subjek",
+    date: "Tanggal",
+    email_created: "✅ Email berhasil dibuat!",
+    email_exists: "⚠️ Email sudah ada.",
+    check_inbox: "Cek inbox",
+    limit_reached_email: "⚠️ Limit email tercapai! Maksimal {limit} email untuk user gratis.\n\n💎 Upgrade ke Premium untuk unlimited email.",
+    limit_reached_2fa: "⚠️ Limit 2FA tercapai! Maksimal {limit} 2FA secrets untuk user gratis.\n\n💎 Upgrade ke Premium untuk unlimited 2FA.",
+  },
+  en: {
+    welcome_choose_lang: `🌍 <b>Choose Language / Pilih Bahasa</b>
+
+Please select your preferred language:
+Silakan pilih bahasa yang ingin kamu gunakan:`,
+    lang_set: "✅ Language successfully changed to English!",
+    welcome_title: "🎉 <b>Welcome to Temp Email Bot!</b>",
+    welcome_desc: "This bot helps you create temporary emails and manage 2FA codes.",
+    email_section: "📧 <b>EMAIL</b>",
+    create_desc: "Create new email",
+    create_example: "→",
+    mails_desc: "Check email inbox",
+    read_desc: "Read email content",
+    search_desc: "Search emails",
+    twofa_section: "🔐 <b>2FA/OTP</b>",
+    twofa_desc: "Generate OTP code",
+    twofa_add_desc: "Save secret",
+    twofa_list_desc: "View saved secrets",
+    qr_desc: "QR code for authenticator",
+    backup_desc: "Backup all 2FA secrets",
+    account_section: "👤 <b>ACCOUNT</b>",
+    mystats_desc: "Your account stats",
+    settings_desc: "Settings (auto-delete, etc)",
+    lang_desc: "Change language",
+    shortcuts: "⚡ <b>SHORTCUTS</b>",
+    admin_section: "🔧 <b>ADMIN</b>",
+    list_desc: "View all registered emails",
+    stats_desc: "Bot statistics",
+    blacklist_desc: "Manage blocked senders",
+    cleanup_desc: "Delete old emails (per user setting)",
+    delete_desc: "Delete email address",
+    broadcast_desc: "Send message to all users",
+    users_desc: "View user list",
+    premium_desc: "Manage premium users",
+    domains_desc: "View available domains",
+    cmd_not_found: "❓ Command not recognized.\n\nType /start to see the guide.",
+    user_not_found: "❌ Error: User not found.",
+    admin_only: "⛔ This command is for admin only.",
+    enter_email_name: "⚠️ Enter the email name to check.",
+    example: "Example",
+    see_all_emails: "📋 See all emails",
+    email_not_found: "⚠️ Email not found.",
+    no_emails: "📭 No emails yet.",
+    from: "From",
+    subject: "Subject",
+    date: "Date",
+    email_created: "✅ Email created successfully!",
+    email_exists: "⚠️ Email already exists.",
+    check_inbox: "Check inbox",
+    limit_reached_email: "⚠️ Email limit reached! Maximum {limit} emails for free users.\n\n💎 Upgrade to Premium for unlimited emails.",
+    limit_reached_2fa: "⚠️ 2FA limit reached! Maximum {limit} 2FA secrets for free users.\n\n💎 Upgrade to Premium for unlimited 2FA.",
+  }
+};
+
+function t(lang: Language, key: keyof typeof TRANSLATIONS.id): string {
+  return TRANSLATIONS[lang][key] || TRANSLATIONS.id[key];
+}
+
 const app = new Hono<{ Bindings: Bindings }>();
 
 // Helper function to get list of domains
@@ -259,10 +372,53 @@ async function processCommand(
 
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
 
+  // Get user language for responses (null if not set)
+  const userLang = await getUserLanguage(env.DB, telegramUserId);
+  const lang = getLang(userLang);
+  
   switch (command) {
-    case "/start":
+    case "/start": {
+      // If no language set, show bilingual language selection
+      if (!userLang) {
+        return {
+          text: `🌍 <b>Pilih Bahasa / Choose Language</b>
+
+Silakan pilih bahasa yang ingin kamu gunakan.
+Please select your preferred language.`,
+          keyboard: {
+            inline_keyboard: [
+              [
+                { text: "🇮🇩 Bahasa Indonesia", callback_data: "lang:id" },
+                { text: "🇬🇧 English", callback_data: "lang:en" }
+              ]
+            ]
+          }
+        };
+      }
+      
+      // If language already set, show help
+      return await getHelpMessage(env.DB, getDomains(env), isAdmin, telegramUserId);
+    }
+    
     case "/help":
-      return getHelpMessage(getDomains(env), isAdmin);
+      return await getHelpMessage(env.DB, getDomains(env), isAdmin, telegramUserId);
+    
+    case "/lang":
+    case "/language": {
+      return {
+        text: `🌍 <b>${lang === "id" ? "Ganti Bahasa" : "Change Language"}</b>
+
+${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
+        keyboard: {
+          inline_keyboard: [
+            [
+              { text: "🇮🇩 Bahasa Indonesia", callback_data: "lang:id" },
+              { text: "🇬🇧 English", callback_data: "lang:en" }
+            ]
+          ]
+        }
+      };
+    }
 
     case "/create":
     case "/c":
@@ -280,14 +436,14 @@ async function processCommand(
     case "/list":
     case "/e":
       if (!isAdmin) {
-        return `⛔ Perintah ini hanya untuk admin.`;
+        return t(lang, "admin_only");
       }
       return await handleList(env, telegramUserId);
 
     case "/delete":
     case "/d":
       if (!isAdmin) {
-        return `⛔ Perintah ini hanya untuk admin.`;
+        return t(lang, "admin_only");
       }
       return await handleDelete(env, telegramUserId, arg);
 
@@ -302,7 +458,7 @@ async function processCommand(
 
     case "/stats":
       if (!isAdmin) {
-        return `⛔ Perintah ini hanya untuk admin.`;
+        return t(lang, "admin_only");
       }
       return await handleStats(env);
 
@@ -315,28 +471,28 @@ async function processCommand(
 
     case "/cleanup":
       if (!isAdmin) {
-        return `⛔ Perintah ini hanya untuk admin.`;
+        return t(lang, "admin_only");
       }
       return await handleCleanup(env);
 
     case "/broadcast":
     case "/bc":
       if (!isAdmin) {
-        return `⛔ Perintah ini hanya untuk admin.`;
+        return t(lang, "admin_only");
       }
       return await handleBroadcast(env, telegramUserId, arg);
 
     case "/users":
     case "/u":
       if (!isAdmin) {
-        return `⛔ Perintah ini hanya untuk admin.`;
+        return t(lang, "admin_only");
       }
       return await handleUsers(env, arg);
 
     case "/premium":
     case "/p":
       if (!isAdmin) {
-        return `⛔ Perintah ini hanya untuk admin.`;
+        return t(lang, "admin_only");
       }
       return await handlePremium(env, arg);
 
@@ -359,9 +515,7 @@ async function processCommand(
       return handleDomains(env);
 
     default:
-      return `❓ Perintah tidak dikenali.
-
-Ketik /start untuk melihat panduan.`;
+      return t(lang, "cmd_not_found");
   }
 }
 
@@ -413,6 +567,17 @@ async function processCallback(
       const domain = params[1];
       const result = await handleCreate(env, telegramUserId, `${localPart}@${domain}`);
       return typeof result === 'string' ? result : result.text;
+    }
+    
+    case "lang": {
+      // Set language: lang:id or lang:en
+      const newLang = params[0] as Language;
+      if (newLang === "id" || newLang === "en") {
+        await setUserLanguage(env.DB, telegramUserId, newLang);
+        const helpMsg = await getHelpMessage(env.DB, getDomains(env), telegramUserId === env.ADMIN_USER_ID, telegramUserId);
+        return t(newLang, "lang_set") + "\n\n" + helpMsg;
+      }
+      return "";
     }
     
     default:
@@ -741,7 +906,8 @@ async function handleStats(env: Bindings): Promise<string> {
 async function handleBlacklist(env: Bindings, telegramUserId: string, arg: string): Promise<string> {
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
   if (!isAdmin) {
-    return `⛔ Perintah ini hanya untuk admin.`;
+    const lang = getLang(await getUserLanguage(env.DB, telegramUserId));
+    return t(lang, "admin_only");
   }
 
   const userId = await getUserId(env.DB, telegramUserId);
@@ -1410,98 +1576,103 @@ Ini akan generate QR code untuk secret tersimpan.`;
   return "";
 }
 
-function getHelpMessage(domains: string[], isAdmin: boolean): string {
+async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolean, telegramUserId: string): Promise<string> {
+  const lang = getLang(await getUserLanguage(db, telegramUserId));
   const defaultDomain = domains[0] || "example.com";
+  const or = lang === "id" ? "atau" : "or";
   const multiDomainInfo = domains.length > 1 
-    ? `\n<b>/domains</b> - Lihat domain tersedia` 
+    ? `\n<b>/domains</b> - ${t(lang, "domains_desc")}` 
     : "";
   
-  let message = `🎉 <b>Selamat datang di Temp Email Bot!</b>
+  let message = `${t(lang, "welcome_title")}
 
-Bot ini membantu kamu membuat email temporary dan mengelola kode 2FA.
+${t(lang, "welcome_desc")}
 
-━━━ 📧 <b>EMAIL</b> ━━━
+━━━ ${t(lang, "email_section")} ━━━
 
-<b>/create</b> atau <b>/c</b> <code>nama</code>
-Buat email baru (→ <code>nama@${defaultDomain}</code>)
+<b>/create</b> ${or} <b>/c</b> <code>nama</code>
+${t(lang, "create_desc")} (→ <code>nama@${defaultDomain}</code>)
 → <code>/c tokoku</code>${multiDomainInfo}
 
-<b>/mails</b> atau <b>/m</b> <code>nama</code>
-Cek inbox email
+<b>/mails</b> ${or} <b>/m</b> <code>nama</code>
+${t(lang, "mails_desc")}
 → <code>/m tokoku</code>
 
-<b>/read</b> atau <b>/r</b> <code>id</code>
-Baca isi email
+<b>/read</b> ${or} <b>/r</b> <code>id</code>
+${t(lang, "read_desc")}
 → <code>/r 5</code>
 
-<b>/search</b> atau <b>/s</b> <code>kata</code>
-Cari email
+<b>/search</b> ${or} <b>/s</b> <code>kata</code>
+${t(lang, "search_desc")}
 → <code>/s verifikasi</code>
 
-━━━ 🔐 <b>2FA/OTP</b> ━━━
+━━━ ${t(lang, "twofa_section")} ━━━
 
-<b>/2fa</b> atau <b>/a</b> <code>secret</code>
-Generate kode OTP
+<b>/2fa</b> ${or} <b>/a</b> <code>secret</code>
+${t(lang, "twofa_desc")}
 → <code>/a JBSWY3DPEHPK3PXP</code>
 
 <b>/2fa add</b> <code>nama secret</code>
-Simpan secret
+${t(lang, "twofa_add_desc")}
 → <code>/a add google SECRET</code>
 
-<b>/2fa list</b> atau <b>/a list</b>
-Lihat secret tersimpan
+<b>/2fa list</b> ${or} <b>/a list</b>
+${t(lang, "twofa_list_desc")}
 
 <b>/qr</b> <code>nama</code>
-QR code untuk authenticator
+${t(lang, "qr_desc")}
 → <code>/qr google</code>
 
 <b>/backup</b>
-Backup semua 2FA secrets
+${t(lang, "backup_desc")}
 
-━━━ 👤 <b>AKUN</b> ━━━
+━━━ ${t(lang, "account_section")} ━━━
 
-<b>/mystats</b> atau <b>/me</b>
-Statistik akunmu
+<b>/mystats</b> ${or} <b>/me</b>
+${t(lang, "mystats_desc")}
 
 <b>/setting</b>
-Pengaturan (auto-delete, dll)
+${t(lang, "settings_desc")}
 
-━━━ ⚡ <b>SHORTCUT</b> ━━━
+<b>/lang</b>
+${t(lang, "lang_desc")}
+
+━━━ ${t(lang, "shortcuts")} ━━━
 <code>/c</code> create, <code>/m</code> mails, <code>/r</code> read
 <code>/s</code> search, <code>/a</code> 2fa, <code>/me</code> stats`;
 
   if (isAdmin) {
     message += `
 
-━━━ 🔧 <b>ADMIN</b> ━━━
+━━━ ${t(lang, "admin_section")} ━━━
 
-<b>/list</b> atau <b>/e</b>
-Lihat semua email terdaftar
+<b>/list</b> ${or} <b>/e</b>
+${t(lang, "list_desc")}
 
 <b>/stats</b>
-Statistik bot
+${t(lang, "stats_desc")}
 
 <b>/blacklist</b> <code>add/del/list</code>
-Kelola pengirim yang diblokir
+${t(lang, "blacklist_desc")}
 → <code>/blacklist add spam@evil.com</code>
 
 <b>/cleanup</b>
-Hapus email lama (sesuai setting user)
+${t(lang, "cleanup_desc")}
 
-<b>/delete</b> atau <b>/d</b> <code>nama</code>
-Hapus alamat email
+<b>/delete</b> ${or} <b>/d</b> <code>nama</code>
+${t(lang, "delete_desc")}
 → <code>/d tokoku</code>
 
-<b>/broadcast</b> atau <b>/bc</b> <code>pesan</code>
-Kirim pesan ke semua user
+<b>/broadcast</b> ${or} <b>/bc</b> <code>pesan</code>
+${t(lang, "broadcast_desc")}
 → <code>/bc Maintenance jam 10</code>
 
-<b>/users</b> atau <b>/u</b>
-Lihat daftar semua pengguna bot
-→ <code>/u 2</code> (halaman 2)
+<b>/users</b> ${or} <b>/u</b>
+${t(lang, "users_desc")}
+→ <code>/u 2</code> (${lang === "id" ? "halaman 2" : "page 2"})
 
-<b>/premium</b> atau <b>/p</b>
-Kelola status premium user
+<b>/premium</b> ${or} <b>/p</b>
+${t(lang, "premium_desc")}
 → <code>/p add 123456789</code>`;
   }
 
@@ -1934,6 +2105,25 @@ async function getUserId(db: D1Database, telegramUserId: string): Promise<number
     .bind(telegramUserId)
     .first<{ id: number }>();
   return user?.id || null;
+}
+
+async function getUserLanguage(db: D1Database, telegramUserId: string): Promise<Language | null> {
+  const user = await db
+    .prepare("SELECT language FROM users WHERE telegram_user_id = ?")
+    .bind(telegramUserId)
+    .first<{ language: string | null }>();
+  return (user?.language as Language) || null;
+}
+
+function getLang(lang: Language | null): Language {
+  return lang || "id";
+}
+
+async function setUserLanguage(db: D1Database, telegramUserId: string, lang: Language): Promise<void> {
+  await db
+    .prepare("UPDATE users SET language = ? WHERE telegram_user_id = ?")
+    .bind(lang, telegramUserId)
+    .run();
 }
 
 // Premium limits (inbox is soft limit - handled by auto-cleanup)
