@@ -326,6 +326,13 @@ async function processCommand(
       }
       return await handleBroadcast(env, telegramUserId, arg);
 
+    case "/users":
+    case "/u":
+      if (!isAdmin) {
+        return `⛔ Perintah ini hanya untuk admin.`;
+      }
+      return await handleUsers(env, arg);
+
     case "/setting":
     case "/settings":
     case "/set":
@@ -1035,6 +1042,62 @@ Email yang lebih tua dari ${days} hari akan otomatis dihapus saat cleanup.`;
 Gunakan: <code>/set autodelete HARI</code>`;
 }
 
+// ============ USERS HANDLER (admin only) ============
+async function handleUsers(env: Bindings, arg: string): Promise<string> {
+  const page = parseInt(arg) || 1;
+  const perPage = 20;
+  const offset = (page - 1) * perPage;
+
+  // Get total count
+  const totalResult = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first<{ count: number }>();
+  const total = totalResult?.count || 0;
+  const totalPages = Math.ceil(total / perPage);
+
+  if (total === 0) {
+    return `📭 Belum ada user terdaftar.`;
+  }
+
+  // Get users with stats
+  const users = await env.DB.prepare(`
+    SELECT 
+      u.id,
+      u.telegram_user_id,
+      u.telegram_username,
+      u.created_at,
+      u.auto_delete_days,
+      (SELECT COUNT(*) FROM emails WHERE user_id = u.id) as email_count,
+      (SELECT COUNT(*) FROM inbox i JOIN emails e ON i.email_id = e.id WHERE e.user_id = u.id) as inbox_count,
+      (SELECT COUNT(*) FROM totp_secrets WHERE user_id = u.id) as totp_count
+    FROM users u
+    ORDER BY u.created_at DESC
+    LIMIT ? OFFSET ?
+  `).bind(perPage, offset).all();
+
+  if (!users.results || users.results.length === 0) {
+    return `❌ Halaman ${page} tidak ditemukan.`;
+  }
+
+  let response = `👥 <b>Daftar Pengguna Bot</b>\n`;
+  response += `📊 Total: <b>${total}</b> user (Halaman ${page}/${totalPages})\n\n`;
+
+  for (const user of users.results as any[]) {
+    const username = user.telegram_username ? `@${user.telegram_username}` : "(no username)";
+    const joinDate = new Date(user.created_at).toLocaleDateString('id-ID');
+    
+    response += `👤 <b>${username}</b>\n`;
+    response += `   ID: <code>${user.telegram_user_id}</code>\n`;
+    response += `   📧 ${user.email_count} email | 📬 ${user.inbox_count} pesan | 🔐 ${user.totp_count} 2FA\n`;
+    response += `   📅 Bergabung: ${joinDate}\n\n`;
+  }
+
+  response += `━━━━━━━━━━━━━━━\n`;
+  if (totalPages > 1) {
+    response += `📄 Halaman lain: <code>/users 2</code>, <code>/users 3</code>, dst.`;
+  }
+
+  return response;
+}
+
 // ============ MY STATS HANDLER ============
 async function handleMyStats(env: Bindings, telegramUserId: string): Promise<string> {
   const userId = await getUserId(env.DB, telegramUserId);
@@ -1282,7 +1345,11 @@ Hapus alamat email
 
 <b>/broadcast</b> atau <b>/bc</b> <code>pesan</code>
 Kirim pesan ke semua user
-→ <code>/bc Maintenance jam 10</code>`;
+→ <code>/bc Maintenance jam 10</code>
+
+<b>/users</b> atau <b>/u</b>
+Lihat daftar semua pengguna bot
+→ <code>/u 2</code> (halaman 2)`;
   }
 
   return message;
