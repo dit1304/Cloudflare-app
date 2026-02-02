@@ -7,7 +7,6 @@ type Bindings = {
   TEMP_EMAIL_DOMAIN: string;
   ADMIN_USER_ID: string;
   FALLBACK_EMAIL: string;
-  WORKER_URL?: string;
 };
 
 type Language = "id" | "en";
@@ -37,8 +36,6 @@ Please select your preferred language:`,
     mystats_desc: "Statistik akunmu",
     settings_desc: "Pengaturan (auto-delete, dll)",
     lang_desc: "Ganti bahasa",
-    domain_section: "🌐 <b>CUSTOM DOMAIN</b>",
-    domain_desc: "Kelola domain kustom kamu",
     shortcuts: "⚡ <b>SHORTCUT</b>",
     admin_section: "🔧 <b>ADMIN</b>",
     list_desc: "Lihat semua email terdaftar",
@@ -91,8 +88,6 @@ Silakan pilih bahasa yang ingin kamu gunakan:`,
     mystats_desc: "Your account stats",
     settings_desc: "Settings (auto-delete, etc)",
     lang_desc: "Change language",
-    domain_section: "🌐 <b>CUSTOM DOMAIN</b>",
-    domain_desc: "Manage your custom domains",
     shortcuts: "⚡ <b>SHORTCUTS</b>",
     admin_section: "🔧 <b>ADMIN</b>",
     list_desc: "View all registered emails",
@@ -280,60 +275,6 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
   )
     .bind(toAddress)
     .first<{ id: number; user_id: number; telegram_user_id: string }>();
-
-  // If email not found, check if it's a verified custom domain
-  if (!email) {
-    const emailDomain = toAddress.split("@")[1];
-    const customDomain = await env.DB.prepare(
-      "SELECT cd.*, u.telegram_user_id FROM custom_domains cd JOIN users u ON cd.user_id = u.id WHERE cd.domain = ? AND cd.verified = 1"
-    ).bind(emailDomain).first<{ id: number; user_id: number; telegram_user_id: string; domain: string }>();
-
-    if (customDomain) {
-      console.log("Custom domain found, auto-creating email for user:", toAddress);
-      const localPart = toAddress.split("@")[0];
-      
-      // Check if email already exists (handles concurrency)
-      let existingEmail = await env.DB.prepare(
-        "SELECT id, user_id FROM emails WHERE email_address = ?"
-      ).bind(toAddress).first<{ id: number; user_id: number }>();
-      
-      if (existingEmail) {
-        email = {
-          id: existingEmail.id,
-          user_id: existingEmail.user_id,
-          telegram_user_id: customDomain.telegram_user_id
-        };
-      } else {
-        // Auto-create email for custom domain owner
-        const emailResult = await env.DB.prepare(
-          "INSERT OR IGNORE INTO emails (user_id, email_address, local_part, is_active) VALUES (?, ?, ?, 1) RETURNING id, user_id"
-        )
-          .bind(customDomain.user_id, toAddress, localPart)
-          .first<{ id: number; user_id: number }>();
-
-        if (emailResult) {
-          email = {
-            id: emailResult.id,
-            user_id: emailResult.user_id,
-            telegram_user_id: customDomain.telegram_user_id
-          };
-        } else {
-          // If INSERT OR IGNORE returned nothing, email was created by concurrent request
-          existingEmail = await env.DB.prepare(
-            "SELECT id, user_id FROM emails WHERE email_address = ?"
-          ).bind(toAddress).first<{ id: number; user_id: number }>();
-          
-          if (existingEmail) {
-            email = {
-              id: existingEmail.id,
-              user_id: existingEmail.user_id,
-              telegram_user_id: customDomain.telegram_user_id
-            };
-          }
-        }
-      }
-    }
-  }
 
   if (!email) {
     console.log("Email address not found, creating catch-all entry:", toAddress);
@@ -528,8 +469,6 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
     case "/export":
       return await handleForward(env, telegramUserId, arg);
 
-    case "/domain":
-      return await handleDomain(env, telegramUserId, arg);
 
     case "/cleanup":
       if (!isAdmin) {
@@ -1076,218 +1015,6 @@ Contoh: <code>/forward 5 myemail@gmail.com</code>`;
 
 ⚠️ Fitur forward email memerlukan SMTP.
 💡 Untuk sementara, copy isi email dengan <code>/read ${messageId}</code>`;
-}
-
-// Custom domain management
-async function handleDomain(env: Bindings, telegramUserId: string, arg: string): Promise<string> {
-  const userId = await getUserId(env.DB, telegramUserId);
-  if (!userId) return `❌ Error: User tidak ditemukan.`;
-
-  const parts = arg.split(/\s+/);
-  const subCommand = parts[0]?.toLowerCase() || "";
-  const domain = parts[1]?.toLowerCase() || "";
-
-  // Generate random verification code
-  function generateVerificationCode(): string {
-    return `tempemail-verify-${Math.random().toString(36).substring(2, 10)}`;
-  }
-
-  // Get worker URL for email routing setup
-  const workerUrl = env.WORKER_URL || "your-worker.your-subdomain.workers.dev";
-
-  switch (subCommand) {
-    case "add": {
-      if (!domain) {
-        return `⚠️ Format: <code>/domain add namadomain.com</code>`;
-      }
-
-      // Validate domain format
-      if (!/^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$/.test(domain)) {
-        return `❌ Format domain tidak valid: ${domain}`;
-      }
-
-      // Check if domain already exists
-      const existing = await env.DB.prepare(
-        "SELECT * FROM custom_domains WHERE domain = ?"
-      ).bind(domain).first();
-
-      if (existing) {
-        if ((existing as any).user_id === userId) {
-          const isVerified = (existing as any).verified === 1;
-          if (isVerified) {
-            return `✅ Domain <b>${domain}</b> sudah terdaftar dan terverifikasi.`;
-          } else {
-            return `⚠️ Domain <b>${domain}</b> sudah terdaftar tapi belum diverifikasi.
-
-🔑 Kode verifikasi: <code>${(existing as any).verification_code}</code>
-
-Gunakan <code>/domain verify ${domain}</code> setelah setup Email Routing.`;
-          }
-        } else {
-          return `❌ Domain <b>${domain}</b> sudah digunakan user lain.`;
-        }
-      }
-
-      // Generate verification code
-      const verificationCode = generateVerificationCode();
-
-      // Insert new domain
-      await env.DB.prepare(
-        "INSERT INTO custom_domains (user_id, domain, verification_code, verified) VALUES (?, ?, ?, 0)"
-      ).bind(userId, domain, verificationCode).run();
-
-      return `🌐 <b>Domain Ditambahkan</b>
-
-📌 Domain: <b>${domain}</b>
-🔑 Kode Verifikasi: <code>${verificationCode}</code>
-
-━━━ <b>Langkah Setup</b> ━━━
-
-<b>1. Tambahkan domain ke Cloudflare</b>
-   • Login ke dashboard.cloudflare.com
-   • Klik "Add a Site" → masukkan <b>${domain}</b>
-   • Ikuti proses setup (ganti NS di registrar)
-
-<b>2. Setup Email Routing</b>
-   • Di Cloudflare → Email → Email Routing
-   • Enable Email Routing
-   • Buat Catch-all rule:
-     Action: Send to Worker
-     Destination: <code>${workerUrl}</code>
-
-<b>3. Verifikasi</b>
-   • Kirim email ke: <code>${verificationCode}@${domain}</code>
-   • Bot akan otomatis verifikasi domain kamu
-
-Atau gunakan: <code>/domain verify ${domain}</code>`;
-    }
-
-    case "verify": {
-      if (!domain) {
-        return `⚠️ Format: <code>/domain verify namadomain.com</code>`;
-      }
-
-      const domainRecord = await env.DB.prepare(
-        "SELECT * FROM custom_domains WHERE domain = ? AND user_id = ?"
-      ).bind(domain, userId).first();
-
-      if (!domainRecord) {
-        return `❌ Domain <b>${domain}</b> tidak ditemukan. Tambahkan dulu dengan <code>/domain add ${domain}</code>`;
-      }
-
-      if ((domainRecord as any).verified === 1) {
-        return `✅ Domain <b>${domain}</b> sudah terverifikasi!`;
-      }
-
-      // Check if verification email was received
-      const verificationCode = (domainRecord as any).verification_code;
-      const verificationEmail = await env.DB.prepare(
-        "SELECT * FROM emails WHERE email_address LIKE ? AND user_id = ?"
-      ).bind(`${verificationCode}@${domain}`, userId).first();
-
-      if (verificationEmail) {
-        // Update domain as verified
-        await env.DB.prepare(
-          "UPDATE custom_domains SET verified = 1 WHERE id = ?"
-        ).bind((domainRecord as any).id).run();
-
-        return `🎉 <b>Domain Terverifikasi!</b>
-
-✅ Domain <b>${domain}</b> berhasil diverifikasi.
-
-Sekarang kamu bisa:
-• Buat email dengan domain ini: <code>/create nama@${domain}</code>
-• Email masuk akan otomatis diteruskan ke bot`;
-      }
-
-      return `⏳ <b>Verifikasi Pending</b>
-
-Domain <b>${domain}</b> belum terverifikasi.
-
-<b>Cara verifikasi:</b>
-1. Pastikan Email Routing sudah aktif di Cloudflare
-2. Kirim email ke: <code>${verificationCode}@${domain}</code>
-3. Jalankan lagi: <code>/domain verify ${domain}</code>
-
-💡 Atau buat email verifikasi: <code>/create ${verificationCode}@${domain}</code>
-Lalu kirim test email ke alamat tersebut.`;
-    }
-
-    case "del":
-    case "delete":
-    case "remove": {
-      if (!domain) {
-        return `⚠️ Format: <code>/domain del namadomain.com</code>`;
-      }
-
-      const domainRecord = await env.DB.prepare(
-        "SELECT * FROM custom_domains WHERE domain = ? AND user_id = ?"
-      ).bind(domain, userId).first();
-
-      if (!domainRecord) {
-        return `❌ Domain <b>${domain}</b> tidak ditemukan.`;
-      }
-
-      // Delete domain and associated emails
-      await env.DB.prepare("DELETE FROM custom_domains WHERE id = ?")
-        .bind((domainRecord as any).id).run();
-
-      return `🗑️ Domain <b>${domain}</b> berhasil dihapus.
-
-⚠️ Email dengan domain ini masih ada di database.
-Untuk menghapus email juga, hapus manual via <code>/del</code>`;
-    }
-
-    case "list":
-    case "": {
-      const domains = await env.DB.prepare(
-        "SELECT * FROM custom_domains WHERE user_id = ? ORDER BY created_at DESC"
-      ).bind(userId).all();
-
-      if (!domains.results || domains.results.length === 0) {
-        return `🌐 <b>Domain Kustom</b>
-
-Kamu belum punya domain kustom.
-
-<b>Tambah domain:</b> <code>/domain add namadomain.com</code>
-
-💡 Fitur ini memungkinkan kamu menggunakan domain sendiri untuk menerima email via bot ini.`;
-      }
-
-      let message = `🌐 <b>Domain Kustom Kamu</b>\n\n`;
-
-      for (const d of domains.results) {
-        const status = (d as any).verified === 1 ? "✅ Verified" : "⏳ Pending";
-        message += `📌 <b>${(d as any).domain}</b>\n`;
-        message += `   Status: ${status}\n`;
-        if ((d as any).verified !== 1) {
-          message += `   Code: <code>${(d as any).verification_code}</code>\n`;
-        }
-        message += `\n`;
-      }
-
-      message += `━━━━━━━━━━━━━━━
-<b>Commands:</b>
-• <code>/domain add domain.com</code> - Tambah domain
-• <code>/domain verify domain.com</code> - Verifikasi
-• <code>/domain del domain.com</code> - Hapus`;
-
-      return message;
-    }
-
-    default:
-      return `🌐 <b>Custom Domain</b>
-
-Kelola domain kustom untuk menerima email.
-
-<b>Commands:</b>
-• <code>/domain list</code> - Lihat domain kamu
-• <code>/domain add domain.com</code> - Tambah domain baru
-• <code>/domain verify domain.com</code> - Verifikasi domain
-• <code>/domain del domain.com</code> - Hapus domain
-
-💡 Dengan fitur ini, kamu bisa pakai domain sendiri!`;
-  }
 }
 
 // Cleanup old emails (admin only)
@@ -1910,13 +1637,6 @@ ${t(lang, "settings_desc")}
 
 <b>/lang</b>
 ${t(lang, "lang_desc")}
-
-━━━ ${t(lang, "domain_section")} ━━━
-
-<b>/domain</b>
-${t(lang, "domain_desc")}
-→ <code>/domain add mydomain.com</code>
-→ <code>/domain list</code>
 
 ━━━ ${t(lang, "shortcuts")} ━━━
 <code>/c</code> create, <code>/m</code> mails, <code>/r</code> read
