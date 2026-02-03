@@ -2291,10 +2291,19 @@ function extractMimePart(rawEmail: string, contentType: string): string | null {
 }
 
 function isBase64(str: string): boolean {
-  // Check if string looks like base64 (only valid base64 chars, length divisible by 4)
+  // Check if string looks like base64 (only valid base64 chars)
   const clean = str.replace(/[\r\n\s]/g, '');
-  if (clean.length < 50 || clean.length % 4 !== 0) return false;
-  return /^[A-Za-z0-9+/]+=*$/.test(clean);
+  if (clean.length < 20) return false;
+  // Check for valid base64 characters (allow padding at end)
+  if (!/^[A-Za-z0-9+/]+=*$/.test(clean)) return false;
+  // Try to decode - if it produces valid UTF-8, it's likely base64
+  try {
+    const decoded = atob(clean);
+    // Check if decoded content looks like text (has printable chars)
+    return /[a-zA-Z<>]/.test(decoded);
+  } catch {
+    return false;
+  }
 }
 
 // Extract important links from email (verification, confirmation, etc.)
@@ -2418,6 +2427,17 @@ function extractEmailBody(rawEmail: string): string {
   // Check if remaining body is base64
   if (isBase64(body)) {
     body = decodeBase64(body);
+  }
+  
+  // Try to find base64 blocks in the body
+  const base64Match = body.match(/([A-Za-z0-9+/]{50,}=*)/);
+  if (base64Match) {
+    try {
+      const decoded = decodeBase64(base64Match[1]);
+      if (decoded.includes('<') || decoded.includes('Dear') || decoded.includes('Hello')) {
+        body = decoded;
+      }
+    } catch {}
   }
   
   return stripHtml(body).substring(0, 4000);
