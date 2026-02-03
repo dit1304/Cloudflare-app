@@ -334,6 +334,9 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
 
   const rawEmail = await new Response(message.raw).text();
   const body = extractEmailBody(rawEmail);
+  
+  // Extract verification links from email
+  const links = extractLinks(rawEmail);
 
   await env.DB.prepare(
     "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?)"
@@ -341,13 +344,32 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
     .bind(email.id, message.from, subject, body, JSON.stringify(Object.fromEntries(message.headers)))
     .run();
 
-  const notificationText = `📬 <b>Email Baru!</b>
+  // Forward to backup email for all registered emails
+  if (env.FALLBACK_EMAIL) {
+    try {
+      await message.forward(env.FALLBACK_EMAIL);
+      console.log("Email forwarded to backup:", env.FALLBACK_EMAIL);
+    } catch (e) {
+      console.error("Failed to forward email:", e);
+    }
+  }
+
+  // Build notification with links if found
+  let notificationText = `📬 <b>Email Baru!</b>
 
 📧 <b>Ke:</b> ${toAddress}
 👤 <b>Dari:</b> ${senderDisplay}
-📋 <b>Subjek:</b> ${subject}
+📋 <b>Subjek:</b> ${subject}`;
 
-Ketik <code>/mails ${toAddress.split("@")[0]}</code> untuk membaca.`;
+  // Add verification links if found
+  if (links.length > 0) {
+    notificationText += `\n\n🔗 <b>Link ditemukan:</b>`;
+    for (const link of links.slice(0, 5)) { // Max 5 links
+      notificationText += `\n• ${link}`;
+    }
+  }
+
+  notificationText += `\n\nKetik <code>/mails ${toAddress.split("@")[0]}</code> untuk membaca.`;
 
   const botToken = env.TELEGRAM_BOT_TOKEN;
   if (botToken) {
@@ -2273,6 +2295,84 @@ function isBase64(str: string): boolean {
   const clean = str.replace(/[\r\n\s]/g, '');
   if (clean.length < 50 || clean.length % 4 !== 0) return false;
   return /^[A-Za-z0-9+/]+=*$/.test(clean);
+}
+
+// Extract important links from email (verification, confirmation, etc.)
+function extractLinks(rawEmail: string): string[] {
+  const links: string[] = [];
+  const seen = new Set<string>();
+  
+  // Decode email content first
+  let content = rawEmail;
+  
+  // Try to get HTML content for link extraction
+  const htmlContent = extractMimePart(rawEmail, 'text/html');
+  if (htmlContent) {
+    content = htmlContent;
+  }
+  
+  // Also try plain text
+  const plainText = extractMimePart(rawEmail, 'text/plain');
+  if (plainText) {
+    content += '\n' + plainText;
+  }
+  
+  // Keywords that indicate important links
+  const importantKeywords = [
+    'verify', 'confirm', 'activate', 'validation', 'reset',
+    'verifikasi', 'konfirmasi', 'aktifasi',
+    'token', 'code', 'otp', 'password', 'login', 'auth',
+    'click', 'klik', 'button', 'action'
+  ];
+  
+  // Extract href links from HTML
+  const hrefRegex = /href=["']([^"']+)["']/gi;
+  let match;
+  while ((match = hrefRegex.exec(content)) !== null) {
+    const url = match[1];
+    if (url && url.startsWith('http') && !seen.has(url)) {
+      // Check if URL or surrounding context contains important keywords
+      const urlLower = url.toLowerCase();
+      const isImportant = importantKeywords.some(kw => urlLower.includes(kw));
+      
+      // Skip common non-verification links
+      const skipPatterns = [
+        'unsubscribe', 'mailto:', 'facebook.com', 'twitter.com', 'linkedin.com',
+        'instagram.com', 'youtube.com', 'privacy', 'terms', 'help', 'support',
+        'logo', 'image', '.png', '.jpg', '.gif', 'cdn.', 'static.'
+      ];
+      const shouldSkip = skipPatterns.some(p => urlLower.includes(p));
+      
+      if (isImportant && !shouldSkip) {
+        seen.add(url);
+        links.push(url);
+      }
+    }
+  }
+  
+  // If no important links found, try to find any action URLs
+  if (links.length === 0) {
+    const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
+    while ((match = urlRegex.exec(content)) !== null) {
+      const url = match[0].replace(/[.,;:!?)>\]]+$/, ''); // Clean trailing punctuation
+      if (url.length > 20 && !seen.has(url)) {
+        const urlLower = url.toLowerCase();
+        const skipPatterns = [
+          'unsubscribe', 'facebook.com', 'twitter.com', 'linkedin.com',
+          '.png', '.jpg', '.gif', 'cdn.', 'static.', 'logo', 'image'
+        ];
+        const shouldSkip = skipPatterns.some(p => urlLower.includes(p));
+        
+        if (!shouldSkip) {
+          seen.add(url);
+          links.push(url);
+          if (links.length >= 3) break; // Limit fallback links
+        }
+      }
+    }
+  }
+  
+  return links;
 }
 
 function extractEmailBody(rawEmail: string): string {
