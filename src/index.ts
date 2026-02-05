@@ -71,6 +71,26 @@ Please select your preferred language:`,
     menu_account: "👤 Akun",
     menu_help: "❓ Bantuan",
     back_to_menu: "🔙 Menu Utama",
+    // Sub-menu buttons
+    btn_create_email: "➕ Buat Email",
+    btn_list_email: "📋 Daftar Email",
+    btn_search_email: "🔍 Cari Email",
+    btn_domains: "🌐 Domain",
+    btn_generate_code: "🔢 Generate Kode",
+    btn_list_secret: "📋 Daftar Secret",
+    btn_add_secret: "➕ Tambah Secret",
+    btn_qr_code: "🔳 QR Code",
+    btn_backup: "💾 Backup",
+    btn_stats: "📊 Statistik",
+    btn_settings: "⚙️ Pengaturan",
+    btn_language: "🌐 Bahasa",
+    btn_refresh: "🔄 Refresh",
+    btn_read_email: "📖 Baca Email",
+    btn_back_inbox: "📬 Kembali ke Inbox",
+    email_menu_title: "📧 <b>Menu Email</b>",
+    twofa_menu_title: "🔐 <b>Menu 2FA/OTP</b>",
+    account_menu_title: "👤 <b>Menu Akun</b>",
+    choose_action: "Pilih aksi:",
   },
   en: {
     welcome_choose_lang: `🌍 <b>Choose Language / Pilih Bahasa</b>
@@ -131,6 +151,26 @@ Silakan pilih bahasa yang ingin kamu gunakan:`,
     menu_account: "👤 Account",
     menu_help: "❓ Help",
     back_to_menu: "🔙 Main Menu",
+    // Sub-menu buttons
+    btn_create_email: "➕ Create Email",
+    btn_list_email: "📋 Email List",
+    btn_search_email: "🔍 Search Email",
+    btn_domains: "🌐 Domains",
+    btn_generate_code: "🔢 Generate Code",
+    btn_list_secret: "📋 Secret List",
+    btn_add_secret: "➕ Add Secret",
+    btn_qr_code: "🔳 QR Code",
+    btn_backup: "💾 Backup",
+    btn_stats: "📊 Statistics",
+    btn_settings: "⚙️ Settings",
+    btn_language: "🌐 Language",
+    btn_refresh: "🔄 Refresh",
+    btn_read_email: "📖 Read Email",
+    btn_back_inbox: "📬 Back to Inbox",
+    email_menu_title: "📧 <b>Email Menu</b>",
+    twofa_menu_title: "🔐 <b>2FA/OTP Menu</b>",
+    account_menu_title: "👤 <b>Account Menu</b>",
+    choose_action: "Choose action:",
   }
 };
 
@@ -173,12 +213,12 @@ function buildMainMenuKeyboard(lang: Language, isAdmin: boolean): any {
 function buildEmailMenuKeyboard(lang: Language): any {
   const keyboard = [
     [
-      { text: "➕ Buat Email", callback_data: "action:create_prompt" },
-      { text: "📋 Daftar Email", callback_data: "action:list" }
+      { text: t(lang, "btn_create_email"), callback_data: "action:create_prompt" },
+      { text: t(lang, "btn_list_email"), callback_data: "action:list" }
     ],
     [
-      { text: "🔍 Cari Email", callback_data: "action:search_prompt" },
-      { text: "🌐 Domain", callback_data: "action:domains" }
+      { text: t(lang, "btn_search_email"), callback_data: "action:search_prompt" },
+      { text: t(lang, "btn_domains"), callback_data: "action:domains" }
     ],
     [
       { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
@@ -191,15 +231,15 @@ function buildEmailMenuKeyboard(lang: Language): any {
 function build2FAMenuKeyboard(lang: Language): any {
   const keyboard = [
     [
-      { text: "🔢 Generate Kode", callback_data: "action:2fa_generate_prompt" },
-      { text: "📋 Daftar Secret", callback_data: "action:2fa_list" }
+      { text: t(lang, "btn_generate_code"), callback_data: "action:2fa_generate_prompt" },
+      { text: t(lang, "btn_list_secret"), callback_data: "action:2fa_list" }
     ],
     [
-      { text: "➕ Tambah Secret", callback_data: "action:2fa_add_prompt" },
-      { text: "🔳 QR Code", callback_data: "action:qr_prompt" }
+      { text: t(lang, "btn_add_secret"), callback_data: "action:2fa_add_prompt" },
+      { text: t(lang, "btn_qr_code"), callback_data: "action:qr_prompt" }
     ],
     [
-      { text: "💾 Backup", callback_data: "action:backup" }
+      { text: t(lang, "btn_backup"), callback_data: "action:backup" }
     ],
     [
       { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
@@ -212,11 +252,11 @@ function build2FAMenuKeyboard(lang: Language): any {
 function buildAccountMenuKeyboard(lang: Language): any {
   const keyboard = [
     [
-      { text: "📊 Statistik", callback_data: "action:mystats" },
-      { text: "⚙️ Pengaturan", callback_data: "action:settings" }
+      { text: t(lang, "btn_stats"), callback_data: "action:mystats" },
+      { text: t(lang, "btn_settings"), callback_data: "action:settings" }
     ],
     [
-      { text: "🌐 Bahasa", callback_data: "action:lang" }
+      { text: t(lang, "btn_language"), callback_data: "action:lang" }
     ],
     [
       { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
@@ -712,19 +752,19 @@ async function processCallback(
         
         case "email":
           return {
-            text: `📧 <b>Menu Email</b>\n\nPilih aksi:`,
+            text: `${t(lang, "email_menu_title")}\n\n${t(lang, "choose_action")}`,
             keyboard: buildEmailMenuKeyboard(lang)
           };
         
         case "2fa":
           return {
-            text: `🔐 <b>Menu 2FA/OTP</b>\n\nPilih aksi:`,
+            text: `${t(lang, "twofa_menu_title")}\n\n${t(lang, "choose_action")}`,
             keyboard: build2FAMenuKeyboard(lang)
           };
         
         case "account":
           return {
-            text: `👤 <b>Menu Akun</b>\n\nPilih aksi:`,
+            text: `${t(lang, "account_menu_title")}\n\n${t(lang, "choose_action")}`,
             keyboard: buildAccountMenuKeyboard(lang)
           };
         
@@ -734,7 +774,7 @@ async function processCallback(
         case "admin":
           if (!isAdmin) return "";
           return {
-            text: `🔧 <b>Menu Admin</b>\n\nPilih aksi:`,
+            text: `🔧 <b>Admin Menu</b>\n\n${t(lang, "choose_action")}`,
             keyboard: buildAdminMenuKeyboard()
           };
       }
