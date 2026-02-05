@@ -387,13 +387,13 @@ app.post("/webhooks/telegram", async (c) => {
         body: JSON.stringify({ callback_query_id: callbackQuery.id })
       });
 
-      // Process the callback
+      // Process the callback - edit existing message instead of sending new one
       const result = await processCallback(c.env, telegramUserId, callbackData, chatId, messageId);
       if (result) {
         if (typeof result === 'object' && result.text) {
-          await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, result.text, result.keyboard);
+          await editTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, messageId, result.text, result.keyboard);
         } else {
-          await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, result as string);
+          await editTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, messageId, result as string);
         }
       }
     } catch (error) {
@@ -2663,6 +2663,34 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
 
   if (!response.ok) {
     console.error("Telegram API error:", await response.text());
+  }
+}
+
+// Edit existing message instead of sending new one (prevents chat spam)
+async function editTelegramMessage(botToken: string, chatId: number, messageId: number, text: string, keyboard?: any) {
+  const body: any = {
+    chat_id: chatId,
+    message_id: messageId,
+    text: text,
+    parse_mode: "HTML",
+  };
+  
+  if (keyboard) {
+    if (keyboard.inline_keyboard) {
+      body.reply_markup = keyboard;
+    } else {
+      body.reply_markup = { inline_keyboard: keyboard };
+    }
+  }
+  
+  const response = await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    console.error("Telegram editMessage error:", await response.text());
   }
 }
 
