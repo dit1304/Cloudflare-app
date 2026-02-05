@@ -90,7 +90,24 @@ Please select your preferred language:`,
     email_menu_title: "📧 <b>Menu Email</b>",
     twofa_menu_title: "🔐 <b>Menu 2FA/OTP</b>",
     account_menu_title: "👤 <b>Menu Akun</b>",
+    admin_menu_title: "🔧 <b>Menu Admin</b>",
     choose_action: "Pilih aksi:",
+    // Admin menu buttons
+    btn_admin: "🔧 Admin",
+    btn_bot_stats: "📊 Statistik Bot",
+    btn_user_list: "👥 Daftar Users",
+    btn_premium: "⭐ Premium",
+    btn_blacklist: "🚫 Blacklist",
+    btn_cleanup: "🧹 Cleanup",
+    btn_broadcast: "📢 Broadcast",
+    // Action prompts
+    prompt_create_email: "➕ <b>Buat Email Baru</b>\n\nKetik nama email yang ingin dibuat:\n<code>/create namaemailmu</code>\n\nContoh: <code>/create tokoku</code>",
+    prompt_search_email: "🔍 <b>Cari Email</b>\n\nKetik kata kunci untuk mencari:\n<code>/search kata_kunci</code>\n\nContoh: <code>/search verifikasi</code>",
+    prompt_2fa_generate: "🔢 <b>Generate Kode OTP</b>\n\nKetik nama secret atau kode langsung:\n<code>/2fa nama_secret</code>\n<code>/2fa SECRET_KEY</code>\n\nContoh: <code>/2fa google</code>",
+    prompt_2fa_add: "➕ <b>Tambah Secret 2FA</b>\n\nFormat: <code>/2fa add nama SECRET_KEY</code>\n\nContoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>",
+    prompt_qr: "🔳 <b>Generate QR Code</b>\n\nKetik nama secret untuk generate QR:\n<code>/qr nama_secret</code>\n\nContoh: <code>/qr google</code>",
+    prompt_language: "🌐 <b>Ganti Bahasa</b>\n\nPilih bahasa:",
+    prompt_broadcast: "📢 <b>Broadcast Message</b>\n\nKetik pesan yang ingin dikirim ke semua user:\n<code>/broadcast pesan_anda</code>\n\nContoh: <code>/broadcast Bot akan maintenance jam 10</code>",
   },
   en: {
     welcome_choose_lang: `🌍 <b>Choose Language / Pilih Bahasa</b>
@@ -170,7 +187,24 @@ Silakan pilih bahasa yang ingin kamu gunakan:`,
     email_menu_title: "📧 <b>Email Menu</b>",
     twofa_menu_title: "🔐 <b>2FA/OTP Menu</b>",
     account_menu_title: "👤 <b>Account Menu</b>",
+    admin_menu_title: "🔧 <b>Admin Menu</b>",
     choose_action: "Choose action:",
+    // Admin menu buttons
+    btn_admin: "🔧 Admin",
+    btn_bot_stats: "📊 Bot Stats",
+    btn_user_list: "👥 User List",
+    btn_premium: "⭐ Premium",
+    btn_blacklist: "🚫 Blacklist",
+    btn_cleanup: "🧹 Cleanup",
+    btn_broadcast: "📢 Broadcast",
+    // Action prompts
+    prompt_create_email: "➕ <b>Create New Email</b>\n\nType the email name you want to create:\n<code>/create youremailname</code>\n\nExample: <code>/create myshop</code>",
+    prompt_search_email: "🔍 <b>Search Email</b>\n\nType keyword to search:\n<code>/search keyword</code>\n\nExample: <code>/search verification</code>",
+    prompt_2fa_generate: "🔢 <b>Generate OTP Code</b>\n\nType secret name or code directly:\n<code>/2fa secret_name</code>\n<code>/2fa SECRET_KEY</code>\n\nExample: <code>/2fa google</code>",
+    prompt_2fa_add: "➕ <b>Add 2FA Secret</b>\n\nFormat: <code>/2fa add name SECRET_KEY</code>\n\nExample: <code>/2fa add google JBSWY3DPEHPK3PXP</code>",
+    prompt_qr: "🔳 <b>Generate QR Code</b>\n\nType secret name to generate QR:\n<code>/qr secret_name</code>\n\nExample: <code>/qr google</code>",
+    prompt_language: "🌐 <b>Change Language</b>\n\nSelect language:",
+    prompt_broadcast: "📢 <b>Broadcast Message</b>\n\nType message to send to all users:\n<code>/broadcast your_message</code>\n\nExample: <code>/broadcast Maintenance at 10 PM</code>",
   }
 };
 
@@ -202,7 +236,7 @@ function buildMainMenuKeyboard(lang: Language, isAdmin: boolean): any {
   
   if (isAdmin) {
     keyboard.push([
-      { text: "🔧 Admin", callback_data: "menu:admin" }
+      { text: t(lang, "btn_admin"), callback_data: "menu:admin" }
     ]);
   }
   
@@ -266,22 +300,22 @@ function buildAccountMenuKeyboard(lang: Language): any {
 }
 
 // Build admin menu keyboard
-function buildAdminMenuKeyboard(): any {
+function buildAdminMenuKeyboard(lang: Language): any {
   const keyboard = [
     [
-      { text: "📊 Statistik Bot", callback_data: "admin:stats" },
-      { text: "👥 Daftar Users", callback_data: "admin:users" }
+      { text: t(lang, "btn_bot_stats"), callback_data: "admin:stats" },
+      { text: t(lang, "btn_user_list"), callback_data: "admin:users" }
     ],
     [
-      { text: "⭐ Premium", callback_data: "admin:premium" },
-      { text: "🚫 Blacklist", callback_data: "admin:blacklist" }
+      { text: t(lang, "btn_premium"), callback_data: "admin:premium" },
+      { text: t(lang, "btn_blacklist"), callback_data: "admin:blacklist" }
     ],
     [
-      { text: "🧹 Cleanup", callback_data: "admin:cleanup" },
-      { text: "📢 Broadcast", callback_data: "admin:broadcast_prompt" }
+      { text: t(lang, "btn_cleanup"), callback_data: "admin:cleanup" },
+      { text: t(lang, "btn_broadcast"), callback_data: "admin:broadcast_prompt" }
     ],
     [
-      { text: "🔙 Menu Utama", callback_data: "menu:main" }
+      { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
     ]
   ];
   return { inline_keyboard: keyboard };
@@ -774,8 +808,8 @@ async function processCallback(
         case "admin":
           if (!isAdmin) return "";
           return {
-            text: `🔧 <b>Admin Menu</b>\n\n${t(lang, "choose_action")}`,
-            keyboard: buildAdminMenuKeyboard()
+            text: `${t(lang, "admin_menu_title")}\n\n${t(lang, "choose_action")}`,
+            keyboard: buildAdminMenuKeyboard(lang)
           };
       }
       return "";
@@ -785,12 +819,7 @@ async function processCallback(
       switch (params[0]) {
         case "create_prompt":
           return {
-            text: `➕ <b>Buat Email Baru</b>
-
-Ketik nama email yang ingin dibuat:
-<code>/create namaemailmu</code>
-
-Contoh: <code>/create tokoku</code>`,
+            text: t(lang, "prompt_create_email"),
             keyboard: buildBackButton("menu:email", lang)
           };
         
@@ -804,12 +833,7 @@ Contoh: <code>/create tokoku</code>`,
         
         case "search_prompt":
           return {
-            text: `🔍 <b>Cari Email</b>
-
-Ketik kata kunci untuk mencari:
-<code>/search kata_kunci</code>
-
-Contoh: <code>/search verifikasi</code>`,
+            text: t(lang, "prompt_search_email"),
             keyboard: buildBackButton("menu:email", lang)
           };
         
@@ -822,13 +846,7 @@ Contoh: <code>/search verifikasi</code>`,
         // 2FA Actions
         case "2fa_generate_prompt":
           return {
-            text: `🔢 <b>Generate Kode OTP</b>
-
-Ketik nama secret atau kode langsung:
-<code>/2fa nama_secret</code>
-<code>/2fa SECRET_KEY</code>
-
-Contoh: <code>/2fa google</code>`,
+            text: t(lang, "prompt_2fa_generate"),
             keyboard: buildBackButton("menu:2fa", lang)
           };
         
@@ -848,22 +866,13 @@ Contoh: <code>/2fa google</code>`,
         
         case "2fa_add_prompt":
           return {
-            text: `➕ <b>Tambah Secret 2FA</b>
-
-Format: <code>/2fa add nama SECRET_KEY</code>
-
-Contoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>`,
+            text: t(lang, "prompt_2fa_add"),
             keyboard: buildBackButton("menu:2fa", lang)
           };
         
         case "qr_prompt":
           return {
-            text: `🔳 <b>Generate QR Code</b>
-
-Ketik nama secret untuk generate QR:
-<code>/qr nama_secret</code>
-
-Contoh: <code>/qr google</code>`,
+            text: t(lang, "prompt_qr"),
             keyboard: buildBackButton("menu:2fa", lang)
           };
         
@@ -894,7 +903,7 @@ Contoh: <code>/qr google</code>`,
         
         case "lang":
           return {
-            text: `🌐 <b>Ganti Bahasa</b>\n\nPilih bahasa:`,
+            text: t(lang, "prompt_language"),
             keyboard: {
               inline_keyboard: [
                 [
@@ -942,12 +951,7 @@ Contoh: <code>/qr google</code>`,
         
         case "broadcast_prompt":
           return {
-            text: `📢 <b>Broadcast Message</b>
-
-Ketik pesan yang ingin dikirim ke semua user:
-<code>/broadcast pesan_anda</code>
-
-Contoh: <code>/broadcast Bot akan maintenance jam 10</code>`,
+            text: t(lang, "prompt_broadcast"),
             keyboard: buildBackButton("menu:admin", lang)
           };
       }
