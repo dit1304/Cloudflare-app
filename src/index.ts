@@ -605,24 +605,24 @@ async function processCommand(
   
   switch (command) {
     case "/start": {
-      // If no language set, show bilingual language selection
-      if (!userLang) {
-        return {
-          text: `🌍 <b>Pilih Bahasa / Choose Language</b>
+      // Always show language selection first on /start
+      return {
+        text: `🌍 <b>Pilih Bahasa / Choose Language</b>
 
 Silakan pilih bahasa yang ingin kamu gunakan.
 Please select your preferred language.`,
-          keyboard: {
-            inline_keyboard: [
-              [
-                { text: "🇮🇩 Bahasa Indonesia", callback_data: "lang:id" },
-                { text: "🇬🇧 English", callback_data: "lang:en" }
-              ]
+        keyboard: {
+          inline_keyboard: [
+            [
+              { text: "🇮🇩 Bahasa Indonesia", callback_data: "lang:id" },
+              { text: "🇬🇧 English", callback_data: "lang:en" }
             ]
-          }
-        };
-      }
-      
+          ]
+        }
+      };
+    }
+    
+    case "/menu": {
       // Show main menu with inline buttons
       return {
         text: `${t(lang, "welcome_title")}
