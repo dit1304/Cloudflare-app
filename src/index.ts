@@ -63,6 +63,14 @@ Please select your preferred language:`,
     check_inbox: "Cek inbox",
     limit_reached_email: "⚠️ Limit email tercapai! Maksimal {limit} email untuk user gratis.\n\n💎 Upgrade ke Premium untuk unlimited email.",
     limit_reached_2fa: "⚠️ Limit 2FA tercapai! Maksimal {limit} 2FA secrets untuk user gratis.\n\n💎 Upgrade ke Premium untuk unlimited 2FA.",
+    // Menu translations
+    menu_title: "📱 <b>Menu Utama</b>",
+    menu_desc: "Pilih menu di bawah:",
+    menu_email: "📧 Email",
+    menu_2fa: "🔐 2FA/OTP",
+    menu_account: "👤 Akun",
+    menu_help: "❓ Bantuan",
+    back_to_menu: "🔙 Menu Utama",
   },
   en: {
     welcome_choose_lang: `🌍 <b>Choose Language / Pilih Bahasa</b>
@@ -115,6 +123,14 @@ Silakan pilih bahasa yang ingin kamu gunakan:`,
     check_inbox: "Check inbox",
     limit_reached_email: "⚠️ Email limit reached! Maximum {limit} emails for free users.\n\n💎 Upgrade to Premium for unlimited emails.",
     limit_reached_2fa: "⚠️ 2FA limit reached! Maximum {limit} 2FA secrets for free users.\n\n💎 Upgrade to Premium for unlimited 2FA.",
+    // Menu translations
+    menu_title: "📱 <b>Main Menu</b>",
+    menu_desc: "Choose menu below:",
+    menu_email: "📧 Email",
+    menu_2fa: "🔐 2FA/OTP",
+    menu_account: "👤 Account",
+    menu_help: "❓ Help",
+    back_to_menu: "🔙 Main Menu",
   }
 };
 
@@ -127,6 +143,117 @@ const app = new Hono<{ Bindings: Bindings }>();
 // Helper function to get list of domains
 function getDomains(env: Bindings): string[] {
   return env.TEMP_EMAIL_DOMAIN.split(",").map(d => d.trim()).filter(d => d.length > 0);
+}
+
+// ============ INLINE KEYBOARD BUILDERS ============
+
+// Build main menu keyboard
+function buildMainMenuKeyboard(lang: Language, isAdmin: boolean): any {
+  const keyboard: any[][] = [
+    [
+      { text: t(lang, "menu_email"), callback_data: "menu:email" },
+      { text: t(lang, "menu_2fa"), callback_data: "menu:2fa" }
+    ],
+    [
+      { text: t(lang, "menu_account"), callback_data: "menu:account" },
+      { text: t(lang, "menu_help"), callback_data: "menu:help" }
+    ]
+  ];
+  
+  if (isAdmin) {
+    keyboard.push([
+      { text: "🔧 Admin", callback_data: "menu:admin" }
+    ]);
+  }
+  
+  return { inline_keyboard: keyboard };
+}
+
+// Build email menu keyboard
+function buildEmailMenuKeyboard(lang: Language): any {
+  const keyboard = [
+    [
+      { text: "➕ Buat Email", callback_data: "action:create_prompt" },
+      { text: "📋 Daftar Email", callback_data: "action:list" }
+    ],
+    [
+      { text: "🔍 Cari Email", callback_data: "action:search_prompt" },
+      { text: "🌐 Domain", callback_data: "action:domains" }
+    ],
+    [
+      { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
+    ]
+  ];
+  return { inline_keyboard: keyboard };
+}
+
+// Build 2FA menu keyboard
+function build2FAMenuKeyboard(lang: Language): any {
+  const keyboard = [
+    [
+      { text: "🔢 Generate Kode", callback_data: "action:2fa_generate_prompt" },
+      { text: "📋 Daftar Secret", callback_data: "action:2fa_list" }
+    ],
+    [
+      { text: "➕ Tambah Secret", callback_data: "action:2fa_add_prompt" },
+      { text: "🔳 QR Code", callback_data: "action:qr_prompt" }
+    ],
+    [
+      { text: "💾 Backup", callback_data: "action:backup" }
+    ],
+    [
+      { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
+    ]
+  ];
+  return { inline_keyboard: keyboard };
+}
+
+// Build account menu keyboard
+function buildAccountMenuKeyboard(lang: Language): any {
+  const keyboard = [
+    [
+      { text: "📊 Statistik", callback_data: "action:mystats" },
+      { text: "⚙️ Pengaturan", callback_data: "action:settings" }
+    ],
+    [
+      { text: "🌐 Bahasa", callback_data: "action:lang" }
+    ],
+    [
+      { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
+    ]
+  ];
+  return { inline_keyboard: keyboard };
+}
+
+// Build admin menu keyboard
+function buildAdminMenuKeyboard(): any {
+  const keyboard = [
+    [
+      { text: "📊 Statistik Bot", callback_data: "admin:stats" },
+      { text: "👥 Daftar Users", callback_data: "admin:users" }
+    ],
+    [
+      { text: "⭐ Premium", callback_data: "admin:premium" },
+      { text: "🚫 Blacklist", callback_data: "admin:blacklist" }
+    ],
+    [
+      { text: "🧹 Cleanup", callback_data: "admin:cleanup" },
+      { text: "📢 Broadcast", callback_data: "admin:broadcast_prompt" }
+    ],
+    [
+      { text: "🔙 Menu Utama", callback_data: "menu:main" }
+    ]
+  ];
+  return { inline_keyboard: keyboard };
+}
+
+// Build back button only
+function buildBackButton(target: string, lang: Language): any {
+  return {
+    inline_keyboard: [[
+      { text: t(lang, "back_to_menu"), callback_data: target }
+    ]]
+  };
 }
 
 // Handle /domains command
@@ -189,7 +316,11 @@ app.post("/webhooks/telegram", async (c) => {
       // Process the callback
       const result = await processCallback(c.env, telegramUserId, callbackData, chatId, messageId);
       if (result) {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, result);
+        if (typeof result === 'object' && result.text) {
+          await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, result.text, result.keyboard);
+        } else {
+          await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, result as string);
+        }
       }
     } catch (error) {
       console.error("Error processing callback:", error);
@@ -228,18 +359,13 @@ app.post("/webhooks/telegram", async (c) => {
 
 // ============ EMAIL HANDLER (from Cloudflare Email Routing) ============
 function parseFromHeader(fromHeader: string, rawFrom: string): string {
-  // Try to extract display name from "From" header
-  // Format: "Display Name <email@example.com>" or just "email@example.com"
   if (fromHeader) {
     const match = fromHeader.match(/^["']?([^"'<]+)["']?\s*<[^>]+>$/);
     if (match && match[1]) {
       const displayName = match[1].trim();
-      // Return "Display Name (email)" format
       return `${displayName}`;
     }
   }
-  // Fallback: clean up technical bounce addresses
-  // msprvs1=xxx=bounces-xxx@domain -> just show domain
   if (rawFrom.includes('=') && rawFrom.includes('bounces')) {
     const domain = rawFrom.split('@')[1];
     return domain || rawFrom;
@@ -256,7 +382,7 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
   const senderDisplay = parseFromHeader(fromHeader, message.from);
   const senderLower = message.from.toLowerCase();
 
-  // Check global blacklist (managed by admin, applies to all)
+  // Check global blacklist
   try {
     const blacklisted = await env.DB.prepare(
       "SELECT id FROM blacklist WHERE ? LIKE '%' || sender_pattern || '%'"
@@ -280,11 +406,9 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
     console.log("Email address not found, creating catch-all entry:", toAddress);
     
     try {
-      // Auto-create email for admin (catch-all)
       const adminUserId = await getOrCreateAdminUser(env.DB, env.ADMIN_USER_ID);
       const localPart = toAddress.split("@")[0];
       
-      // Create the email address and assign to admin
       const emailResult = await env.DB.prepare(
         "INSERT INTO emails (user_id, email_address, local_part, is_active) VALUES (?, ?, ?, 1) RETURNING id"
       )
@@ -295,19 +419,16 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
         const rawEmail = await new Response(message.raw).text();
         const body = extractEmailBody(rawEmail);
         
-        // Save to inbox
         const inboxResult = await env.DB.prepare(
           "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?) RETURNING id"
         )
           .bind(emailResult.id, message.from, subject, body, JSON.stringify(Object.fromEntries(message.headers)))
           .first<{ id: number }>();
         
-        // Forward to fallback as backup
         if (env.FALLBACK_EMAIL) {
           await message.forward(env.FALLBACK_EMAIL);
         }
         
-        // Notify admin
         const botToken = env.TELEGRAM_BOT_TOKEN;
         if (botToken && env.ADMIN_USER_ID) {
           const msgId = inboxResult?.id || "";
@@ -319,12 +440,18 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
 
 📖 Baca: <code>/read ${msgId}</code>
 📬 Inbox: <code>/mails ${localPart}</code>`;
-          await sendTelegramMessage(botToken, parseInt(env.ADMIN_USER_ID), notificationText);
+          
+          // Add inline button to read
+          const keyboard = {
+            inline_keyboard: [[
+              { text: "📖 Baca Email", callback_data: `read:${msgId}` }
+            ]]
+          };
+          await sendTelegramMessage(botToken, parseInt(env.ADMIN_USER_ID), notificationText, keyboard);
         }
       }
     } catch (e) {
       console.error("Catch-all email creation error:", e);
-      // Still forward to fallback on error
       if (env.FALLBACK_EMAIL) {
         await message.forward(env.FALLBACK_EMAIL);
       }
@@ -334,17 +461,14 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
 
   const rawEmail = await new Response(message.raw).text();
   const body = extractEmailBody(rawEmail);
-  
-  // Extract verification links from email
   const links = extractLinks(rawEmail);
 
-  await env.DB.prepare(
-    "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?)"
+  const inboxResult = await env.DB.prepare(
+    "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?) RETURNING id"
   )
     .bind(email.id, message.from, subject, body, JSON.stringify(Object.fromEntries(message.headers)))
-    .run();
+    .first<{ id: number }>();
 
-  // Forward to backup email for all registered emails
   if (env.FALLBACK_EMAIL) {
     try {
       await message.forward(env.FALLBACK_EMAIL);
@@ -354,26 +478,35 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
     }
   }
 
-  // Build notification with links if found
   let notificationText = `📬 <b>Email Baru!</b>
 
 📧 <b>Ke:</b> ${toAddress}
 👤 <b>Dari:</b> ${senderDisplay}
 📋 <b>Subjek:</b> ${subject}`;
 
-  // Add verification links if found
   if (links.length > 0) {
     notificationText += `\n\n🔗 <b>Link ditemukan:</b>`;
-    for (const link of links.slice(0, 5)) { // Max 5 links
+    for (const link of links.slice(0, 5)) {
       notificationText += `\n• ${link}`;
     }
   }
 
-  notificationText += `\n\nKetik <code>/mails ${toAddress.split("@")[0]}</code> untuk membaca.`;
+  const msgId = inboxResult?.id || "";
+  const localPart = toAddress.split("@")[0];
+  
+  // Build keyboard with action buttons
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "📖 Baca Email", callback_data: `read:${msgId}` },
+        { text: "📬 Inbox", callback_data: `mails:${localPart}` }
+      ]
+    ]
+  };
 
   const botToken = env.TELEGRAM_BOT_TOKEN;
   if (botToken) {
-    await sendTelegramMessage(botToken, parseInt(email.telegram_user_id), notificationText);
+    await sendTelegramMessage(botToken, parseInt(email.telegram_user_id), notificationText, keyboard);
   }
 }
 
@@ -393,8 +526,6 @@ async function processCommand(
   const arg = parts.slice(1).join(" ").trim();
 
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
-
-  // Get user language for responses (null if not set)
   const userLang = await getUserLanguage(env.DB, telegramUserId);
   const lang = getLang(userLang);
   
@@ -418,9 +549,24 @@ Please select your preferred language.`,
         };
       }
       
-      // If language already set, show help
-      return await getHelpMessage(env.DB, getDomains(env), isAdmin, telegramUserId);
+      // Show main menu with inline buttons
+      return {
+        text: `${t(lang, "welcome_title")}
+
+${t(lang, "welcome_desc")}
+
+${t(lang, "menu_desc")}`,
+        keyboard: buildMainMenuKeyboard(lang, isAdmin)
+      };
     }
+    
+    case "/menu":
+      return {
+        text: `${t(lang, "menu_title")}
+
+${t(lang, "menu_desc")}`,
+        keyboard: buildMainMenuKeyboard(lang, isAdmin)
+      };
     
     case "/help":
       return await getHelpMessage(env.DB, getDomains(env), isAdmin, telegramUserId);
@@ -457,9 +603,6 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
 
     case "/list":
     case "/e":
-      if (!isAdmin) {
-        return t(lang, "admin_only");
-      }
       return await handleList(env, telegramUserId);
 
     case "/delete":
@@ -490,7 +633,6 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
     case "/forward":
     case "/export":
       return await handleForward(env, telegramUserId, arg);
-
 
     case "/cleanup":
       if (!isAdmin) {
@@ -538,7 +680,11 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
       return handleDomains(env);
 
     default:
-      return t(lang, "cmd_not_found");
+      // Show menu for unrecognized commands
+      return {
+        text: t(lang, "cmd_not_found"),
+        keyboard: buildMainMenuKeyboard(lang, isAdmin)
+      };
   }
 }
 
@@ -549,56 +695,265 @@ async function processCallback(
   callbackData: string,
   chatId: number,
   messageId: number
-): Promise<string> {
+): Promise<CommandResponse> {
   const [action, ...params] = callbackData.split(":");
+  const isAdmin = telegramUserId === env.ADMIN_USER_ID;
+  const lang = getLang(await getUserLanguage(env.DB, telegramUserId));
   
   switch (action) {
+    // ========== MENU NAVIGATION ==========
+    case "menu":
+      switch (params[0]) {
+        case "main":
+          return {
+            text: `${t(lang, "menu_title")}\n\n${t(lang, "menu_desc")}`,
+            keyboard: buildMainMenuKeyboard(lang, isAdmin)
+          };
+        
+        case "email":
+          return {
+            text: `📧 <b>Menu Email</b>\n\nPilih aksi:`,
+            keyboard: buildEmailMenuKeyboard(lang)
+          };
+        
+        case "2fa":
+          return {
+            text: `🔐 <b>Menu 2FA/OTP</b>\n\nPilih aksi:`,
+            keyboard: build2FAMenuKeyboard(lang)
+          };
+        
+        case "account":
+          return {
+            text: `👤 <b>Menu Akun</b>\n\nPilih aksi:`,
+            keyboard: buildAccountMenuKeyboard(lang)
+          };
+        
+        case "help":
+          return await getHelpMessage(env.DB, getDomains(env), isAdmin, telegramUserId);
+        
+        case "admin":
+          if (!isAdmin) return "";
+          return {
+            text: `🔧 <b>Menu Admin</b>\n\nPilih aksi:`,
+            keyboard: buildAdminMenuKeyboard()
+          };
+      }
+      return "";
+    
+    // ========== EMAIL ACTIONS ==========
+    case "action":
+      switch (params[0]) {
+        case "create_prompt":
+          return {
+            text: `➕ <b>Buat Email Baru</b>
+
+Ketik nama email yang ingin dibuat:
+<code>/create namaemailmu</code>
+
+Contoh: <code>/create tokoku</code>`,
+            keyboard: buildBackButton("menu:email", lang)
+          };
+        
+        case "list": {
+          const result = await handleList(env, telegramUserId);
+          if (typeof result === 'string') {
+            return { text: result, keyboard: buildBackButton("menu:email", lang) };
+          }
+          return result;
+        }
+        
+        case "search_prompt":
+          return {
+            text: `🔍 <b>Cari Email</b>
+
+Ketik kata kunci untuk mencari:
+<code>/search kata_kunci</code>
+
+Contoh: <code>/search verifikasi</code>`,
+            keyboard: buildBackButton("menu:email", lang)
+          };
+        
+        case "domains":
+          return {
+            text: handleDomains(env),
+            keyboard: buildBackButton("menu:email", lang)
+          };
+        
+        // 2FA Actions
+        case "2fa_generate_prompt":
+          return {
+            text: `🔢 <b>Generate Kode OTP</b>
+
+Ketik nama secret atau kode langsung:
+<code>/2fa nama_secret</code>
+<code>/2fa SECRET_KEY</code>
+
+Contoh: <code>/2fa google</code>`,
+            keyboard: buildBackButton("menu:2fa", lang)
+          };
+        
+        case "2fa_list": {
+          const result = await handle2FA(env, telegramUserId, "list");
+          if (typeof result === 'string') {
+            return { text: result, keyboard: buildBackButton("menu:2fa", lang) };
+          }
+          // Add back button to existing keyboard
+          if (result.keyboard) {
+            result.keyboard.inline_keyboard.push([
+              { text: t(lang, "back_to_menu"), callback_data: "menu:2fa" }
+            ]);
+          }
+          return result;
+        }
+        
+        case "2fa_add_prompt":
+          return {
+            text: `➕ <b>Tambah Secret 2FA</b>
+
+Format: <code>/2fa add nama SECRET_KEY</code>
+
+Contoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>`,
+            keyboard: buildBackButton("menu:2fa", lang)
+          };
+        
+        case "qr_prompt":
+          return {
+            text: `🔳 <b>Generate QR Code</b>
+
+Ketik nama secret untuk generate QR:
+<code>/qr nama_secret</code>
+
+Contoh: <code>/qr google</code>`,
+            keyboard: buildBackButton("menu:2fa", lang)
+          };
+        
+        case "backup": {
+          const result = await handleBackup(env, telegramUserId);
+          return { text: result, keyboard: buildBackButton("menu:2fa", lang) };
+        }
+        
+        // Account Actions
+        case "mystats": {
+          const result = await handleMyStats(env, telegramUserId);
+          return { text: result, keyboard: buildBackButton("menu:account", lang) };
+        }
+        
+        case "settings": {
+          const result = await handleSettings(env, telegramUserId, "");
+          if (typeof result === 'string') {
+            return { text: result, keyboard: buildBackButton("menu:account", lang) };
+          }
+          // Add back button to settings keyboard
+          if (result.keyboard) {
+            result.keyboard.inline_keyboard.push([
+              { text: t(lang, "back_to_menu"), callback_data: "menu:account" }
+            ]);
+          }
+          return result;
+        }
+        
+        case "lang":
+          return {
+            text: `🌐 <b>Ganti Bahasa</b>\n\nPilih bahasa:`,
+            keyboard: {
+              inline_keyboard: [
+                [
+                  { text: "🇮🇩 Bahasa Indonesia", callback_data: "lang:id" },
+                  { text: "🇬🇧 English", callback_data: "lang:en" }
+                ],
+                [
+                  { text: t(lang, "back_to_menu"), callback_data: "menu:account" }
+                ]
+              ]
+            }
+          };
+      }
+      return "";
+    
+    // ========== ADMIN ACTIONS ==========
+    case "admin":
+      if (!isAdmin) return "";
+      
+      switch (params[0]) {
+        case "stats": {
+          const result = await handleStats(env);
+          return { text: result, keyboard: buildBackButton("menu:admin", lang) };
+        }
+        
+        case "users": {
+          const result = await handleUsers(env, "1");
+          return { text: result, keyboard: buildBackButton("menu:admin", lang) };
+        }
+        
+        case "premium": {
+          const result = await handlePremium(env, "list");
+          return { text: result, keyboard: buildBackButton("menu:admin", lang) };
+        }
+        
+        case "blacklist": {
+          const result = await handleBlacklist(env, telegramUserId, "list");
+          return { text: result, keyboard: buildBackButton("menu:admin", lang) };
+        }
+        
+        case "cleanup": {
+          const result = await handleCleanup(env);
+          return { text: result, keyboard: buildBackButton("menu:admin", lang) };
+        }
+        
+        case "broadcast_prompt":
+          return {
+            text: `📢 <b>Broadcast Message</b>
+
+Ketik pesan yang ingin dikirim ke semua user:
+<code>/broadcast pesan_anda</code>
+
+Contoh: <code>/broadcast Bot akan maintenance jam 10</code>`,
+            keyboard: buildBackButton("menu:admin", lang)
+          };
+      }
+      return "";
+    
+    // ========== EXISTING CALLBACKS ==========
     case "read":
-      // Read email: read:ID
       return await handleRead(env, telegramUserId, params[0]);
     
     case "mails": {
-      // Back to inbox: mails:emailName
       const result = await handleMails(env, telegramUserId, params[0]);
-      return typeof result === 'string' ? result : result.text;
+      return typeof result === 'string' ? result : result;
     }
     
     case "2fa": {
-      // Generate 2FA: 2fa:name or 2fa:list
       const result = await handle2FA(env, telegramUserId, params[0]);
-      return typeof result === 'string' ? result : result.text;
+      return typeof result === 'string' ? result : result;
     }
     
     case "refresh": {
-      // Refresh 2FA code: refresh:name
       const result = await handle2FA(env, telegramUserId, params[0]);
-      return typeof result === 'string' ? result : result.text;
+      return typeof result === 'string' ? result : result;
     }
     
     case "set":
-      // Settings callback: set:autodelete:days
       if (params[0] === "autodelete") {
         const result = await handleSettings(env, telegramUserId, `autodelete ${params[1]}`);
-        // handleSettings might return object or string - extract text for callbacks
-        return typeof result === 'string' ? result : result.text;
+        return typeof result === 'string' ? result : result;
       }
       return "";
     
     case "create": {
-      // Create email with selected domain: create:localpart:domain
       const localPart = params[0];
       const domain = params[1];
       const result = await handleCreate(env, telegramUserId, `${localPart}@${domain}`);
-      return typeof result === 'string' ? result : result.text;
+      return typeof result === 'string' ? result : result;
     }
     
     case "lang": {
-      // Set language: lang:id or lang:en
       const newLang = params[0] as Language;
       if (newLang === "id" || newLang === "en") {
         await setUserLanguage(env.DB, telegramUserId, newLang);
-        const helpMsg = await getHelpMessage(env.DB, getDomains(env), telegramUserId === env.ADMIN_USER_ID, telegramUserId);
-        return t(newLang, "lang_set") + "\n\n" + helpMsg;
+        return {
+          text: `${t(newLang, "lang_set")}\n\n${t(newLang, "menu_title")}\n\n${t(newLang, "menu_desc")}`,
+          keyboard: buildMainMenuKeyboard(newLang, isAdmin)
+        };
       }
       return "";
     }
@@ -650,15 +1005,12 @@ Contoh: <code>/2fa add google JBSWY3DPEHPK3PXP</code>`;
     const name = param1.toLowerCase();
     const secret = param2.replace(/ /g, '').toUpperCase();
     
-    // Validate secret
     if (!generateOTP(secret)) {
       return `❌ Secret key tidak valid. Pastikan format Base32 benar.`;
     }
 
-    // Check premium limits for 2FA
     const isAdmin = telegramUserId === env.ADMIN_USER_ID;
     if (!isAdmin) {
-      // Check if this is a new secret (not update)
       const existingSecret = await env.DB.prepare(
         "SELECT id FROM totp_secrets WHERE user_id = ? AND name = ?"
       ).bind(userId, name).first();
@@ -682,10 +1034,20 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
         "INSERT OR REPLACE INTO totp_secrets (user_id, name, secret) VALUES (?, ?, ?)"
       ).bind(userId, name, secret).run();
       
-      return `✅ 2FA secret "<b>${name}</b>" berhasil disimpan!
+      return {
+        text: `✅ 2FA secret "<b>${name}</b>" berhasil disimpan!
 
 📋 Lihat semua: <code>/2fa list</code>
-🔢 Generate kode: <code>/2fa ${name}</code>`;
+🔢 Generate kode: <code>/2fa ${name}</code>`,
+        keyboard: {
+          inline_keyboard: [
+            [
+              { text: `🔢 Generate ${name}`, callback_data: `2fa:${name}` },
+              { text: "📋 Daftar", callback_data: "action:2fa_list" }
+            ]
+          ]
+        }
+      };
     } catch (e) {
       return `❌ Gagal menyimpan secret.`;
     }
@@ -695,7 +1057,6 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
   if (subCommand === "list") {
     const isAdmin = telegramUserId === env.ADMIN_USER_ID;
     
-    // Admin can see all users' secrets
     if (isAdmin) {
       const result = await env.DB.prepare(
         `SELECT t.name, t.created_at, u.telegram_user_id, u.telegram_username 
@@ -721,15 +1082,21 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
       return response;
     }
     
-    // Regular user only sees their own
     const result = await env.DB.prepare(
       "SELECT name, created_at FROM totp_secrets WHERE user_id = ? ORDER BY name"
     ).bind(userId).all();
 
     if (!result.results || result.results.length === 0) {
-      return `📭 Belum ada 2FA secret tersimpan.
+      return {
+        text: `📭 Belum ada 2FA secret tersimpan.
 
-➕ Tambah: <code>/2fa add nama SECRET_KEY</code>`;
+➕ Tambah: <code>/2fa add nama SECRET_KEY</code>`,
+        keyboard: {
+          inline_keyboard: [[
+            { text: "➕ Tambah Secret", callback_data: "action:2fa_add_prompt" }
+          ]]
+        }
+      };
     }
 
     let response = `🔐 <b>Daftar 2FA Secret</b>\n\n`;
@@ -739,7 +1106,7 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
       response += `🔑 <b>${item.name}</b>\n`;
     }
     response += `\n━━━━━━━━━━━━━━━
-👆 Tap tombol untuk generate kode`;
+👇 Tap tombol untuk generate kode`;
 
     // Build keyboard with 2FA buttons (max 3 per row)
     const keyboard: any[][] = [];
@@ -750,8 +1117,14 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
       }));
       keyboard.push(row);
     }
+    
+    // Add actions row
+    keyboard.push([
+      { text: "➕ Tambah", callback_data: "action:2fa_add_prompt" },
+      { text: "💾 Backup", callback_data: "action:backup" }
+    ]);
 
-    return { text: response, keyboard };
+    return { text: response, keyboard: { inline_keyboard: keyboard } };
   }
 
   // /2fa del nama
@@ -771,26 +1144,19 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
     return `✅ Secret "<b>${name}</b>" berhasil dihapus.`;
   }
 
-  // /2fa (no args) - show help
+  // /2fa (no args) - show help with keyboard
   if (!arg) {
-    return `🔐 <b>2FA/OTP Manager</b>
+    return {
+      text: `🔐 <b>2FA/OTP Manager</b>
 
-📋 <b>Perintah:</b>
+Pilih aksi di bawah atau gunakan command:
 
-<code>/2fa SECRET_KEY</code>
-Generate kode OTP langsung
-
-<code>/2fa add nama SECRET</code>
-Simpan secret dengan nama
-
-<code>/2fa list</code>
-Lihat semua secret tersimpan
-
-<code>/2fa nama</code>
-Generate kode dari secret tersimpan
-
-<code>/2fa del nama</code>
-Hapus secret tersimpan`;
+<code>/2fa SECRET_KEY</code> - Generate kode OTP
+<code>/2fa add nama SECRET</code> - Simpan secret
+<code>/2fa list</code> - Lihat semua secret
+<code>/2fa nama</code> - Generate dari secret tersimpan`,
+      keyboard: build2FAMenuKeyboard(getLang(await getUserLanguage(env.DB, telegramUserId)))
+    };
   }
 
   // /2fa nama - generate from saved secret
@@ -801,10 +1167,18 @@ Hapus secret tersimpan`;
   if (savedSecret) {
     const otp = generateOTP(savedSecret.secret);
     if (otp) {
-      return `🔐 <b>${subCommand}</b>
+      return {
+        text: `🔐 <b>${subCommand}</b>
 
 🔢 Kode OTP: <code>${otp.code}</code>
-⏱️ Berlaku: ${otp.remaining} detik`;
+⏱️ Berlaku: ${otp.remaining} detik`,
+        keyboard: {
+          inline_keyboard: [[
+            { text: "🔄 Refresh", callback_data: `refresh:${subCommand}` },
+            { text: "📋 Daftar", callback_data: "action:2fa_list" }
+          ]]
+        }
+      };
     }
   }
 
@@ -849,15 +1223,18 @@ ${responseText}━━━━━━━━━━━━━━━
 }
 
 // Search emails
-async function handleSearch(env: Bindings, telegramUserId: string, query: string): Promise<string> {
+async function handleSearch(env: Bindings, telegramUserId: string, query: string): Promise<CommandResponse> {
   if (!query) {
-    return `🔍 <b>Cari Email</b>
+    return {
+      text: `🔍 <b>Cari Email</b>
 
 Format: <code>/search kata_kunci</code>
 
 Contoh:
 <code>/search verifikasi</code>
-<code>/search google</code>`;
+<code>/search google</code>`,
+      keyboard: buildBackButton("menu:email", getLang(await getUserLanguage(env.DB, telegramUserId)))
+    };
   }
 
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
@@ -890,7 +1267,19 @@ Contoh:
   }
 
   let response = `🔍 <b>Hasil Pencarian: "${query}"</b>\n\n`;
-  for (const msg of result.results as any[]) {
+  const messages = result.results as any[];
+  
+  // Build keyboard with read buttons
+  const keyboard: any[][] = [];
+  for (let i = 0; i < Math.min(messages.length, 10); i += 5) {
+    const row = messages.slice(i, i + 5).map((msg: any) => ({
+      text: `📖 ${msg.id}`,
+      callback_data: `read:${msg.id}`
+    }));
+    keyboard.push(row);
+  }
+  
+  for (const msg of messages) {
     response += `📧 <b>ID ${msg.id}</b> - ${msg.email_address.split('@')[0]}
 👤 ${msg.sender.substring(0, 30)}
 📋 ${(msg.subject || "(Tanpa subjek)").substring(0, 40)}
@@ -898,8 +1287,9 @@ Contoh:
 `;
   }
   response += `━━━━━━━━━━━━━━━
-📖 Baca: <code>/read ID</code>`;
-  return response;
+👆 Tap tombol untuk baca email`;
+
+  return { text: response, keyboard: { inline_keyboard: keyboard } };
 }
 
 // Statistics (admin only)
@@ -940,7 +1330,6 @@ async function handleBlacklist(env: Bindings, telegramUserId: string, arg: strin
   const subCommand = parts[0]?.toLowerCase();
   const pattern = parts.slice(1).join(" ") || "";
 
-  // /blacklist add pattern
   if (subCommand === "add") {
     if (!pattern) {
       return `⚠️ Format: <code>/blacklist add pola_email</code>
@@ -957,7 +1346,6 @@ Contoh:
     return `✅ "<b>${pattern}</b>" ditambahkan ke blacklist.`;
   }
 
-  // /blacklist del pattern
   if (subCommand === "del" || subCommand === "rm") {
     if (!pattern) {
       return `⚠️ Format: <code>/blacklist del pola</code>`;
@@ -973,7 +1361,6 @@ Contoh:
     return `✅ Blacklist dihapus.`;
   }
 
-  // /blacklist list (default)
   const result = await env.DB.prepare(
     "SELECT id, sender_pattern, created_at FROM blacklist WHERE user_id = ? ORDER BY created_at DESC"
   ).bind(userId).all();
@@ -1028,7 +1415,6 @@ Contoh: <code>/forward 5 myemail@gmail.com</code>`;
     return `❌ Email dengan ID ${messageId} tidak ditemukan.`;
   }
 
-  // For now, just show the info - actual forwarding would need email sending capability
   return `📤 <b>Forward Email</b>
 
 📧 Dari: ${(msg as any).sender}
@@ -1041,8 +1427,6 @@ Contoh: <code>/forward 5 myemail@gmail.com</code>`;
 
 // Cleanup old emails (admin only)
 async function handleCleanup(env: Bindings): Promise<string> {
-  // Delete emails based on each user's auto_delete_days setting
-  // Users with auto_delete_days = 0 are excluded (never delete)
   const result = await env.DB.prepare(`
     DELETE FROM inbox WHERE id IN (
       SELECT i.id FROM inbox i
@@ -1053,7 +1437,6 @@ async function handleCleanup(env: Bindings): Promise<string> {
     )
   `).run();
 
-  // Delete unused email addresses (no messages for 30 days)
   const emailCleanup = await env.DB.prepare(`
     DELETE FROM emails WHERE id IN (
       SELECT e.id FROM emails e 
@@ -1075,7 +1458,6 @@ async function handleBroadcast(env: Bindings, adminChatId: string, message: stri
 Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
   }
 
-  // Get all users
   const users = await env.DB.prepare("SELECT telegram_user_id FROM users").all();
   
   if (!users.results || users.results.length === 0) {
@@ -1088,7 +1470,6 @@ Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
   let failed = 0;
   let processed = 0;
 
-  // Helper to generate progress bar
   const getProgressBar = (current: number, total: number): string => {
     const percentage = Math.round((current / total) * 100);
     const filled = Math.round(percentage / 10);
@@ -1096,7 +1477,6 @@ Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
     return "▓".repeat(filled) + "░".repeat(empty) + ` ${percentage}%`;
   };
 
-  // Helper to generate status text
   const getStatusText = (done: boolean = false): string => {
     const progress = getProgressBar(processed, totalUsers);
     if (done) {
@@ -1117,7 +1497,6 @@ ${progress}
 ❌ Gagal: <b>${failed}</b>`;
   };
 
-  // Send initial progress message
   const initialMsg = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1132,8 +1511,6 @@ ${progress}
   const messageId = initialResult.result?.message_id;
 
   const broadcastText = `📢 <b>Pengumuman</b>\n\n${message}`;
-
-  // Update frequency: every 5 users or at least 3 updates total
   const updateEvery = Math.max(1, Math.min(5, Math.floor(totalUsers / 3)));
 
   for (const user of users.results as any[]) {
@@ -1159,7 +1536,6 @@ ${progress}
     
     processed++;
 
-    // Update progress message periodically
     if (messageId && (processed % updateEvery === 0 || processed === totalUsers)) {
       try {
         await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
@@ -1178,7 +1554,6 @@ ${progress}
     }
   }
 
-  // Return empty since we already sent the final message
   return "";
 }
 
@@ -1186,31 +1561,28 @@ ${progress}
 async function handleSettings(env: Bindings, telegramUserId: string, arg: string): Promise<CommandResponse> {
   const userId = await getUserId(env.DB, telegramUserId);
   
-  // Get current settings
   const user = await env.DB.prepare(
     "SELECT auto_delete_days, language, timezone FROM users WHERE id = ?"
   ).bind(userId).first() as any;
 
-  // Default values if columns don't exist yet
   const currentAutoDelete = user?.auto_delete_days ?? 7;
   const currentLang = user?.language ?? 'id';
   const currentTz = user?.timezone ?? 'Asia/Jakarta';
 
   if (!arg) {
-    // Show current settings
-    const keyboard = [
-      [
-        { text: "📅 Auto-delete: 3 hari", callback_data: "set:autodelete:3" },
-        { text: "7 hari", callback_data: "set:autodelete:7" }
-      ],
-      [
-        { text: "14 hari", callback_data: "set:autodelete:14" },
-        { text: "30 hari", callback_data: "set:autodelete:30" }
-      ],
-      [
-        { text: "♾️ Tidak pernah", callback_data: "set:autodelete:0" }
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: "3 hari", callback_data: "set:autodelete:3" },
+          { text: "7 hari", callback_data: "set:autodelete:7" },
+          { text: "14 hari", callback_data: "set:autodelete:14" }
+        ],
+        [
+          { text: "30 hari", callback_data: "set:autodelete:30" },
+          { text: "♾️ Tidak pernah", callback_data: "set:autodelete:0" }
+        ]
       ]
-    ];
+    };
 
     return {
       text: `⚙️ <b>Pengaturan Akun</b>
@@ -1220,11 +1592,7 @@ async function handleSettings(env: Bindings, telegramUserId: string, arg: string
 🕐 <b>Timezone:</b> ${currentTz}
 
 ━━━━━━━━━━━━━━━
-<b>Ubah pengaturan:</b>
-<code>/set autodelete 7</code> - Auto-hapus 7 hari
-<code>/set autodelete 0</code> - Tidak auto-hapus
-
-👇 Atau tap tombol di bawah:`,
+📅 <b>Pilih durasi auto-delete:</b>`,
       keyboard
     };
   }
@@ -1266,7 +1634,6 @@ async function handlePremium(env: Bindings, arg: string): Promise<string> {
   const subCommand = parts[0]?.toLowerCase();
   const targetId = parts[1] || "";
 
-  // /premium list - show all premium users
   if (!arg || subCommand === "list") {
     const result = await env.DB.prepare(`
       SELECT telegram_user_id, telegram_username, created_at 
@@ -1290,7 +1657,6 @@ async function handlePremium(env: Bindings, arg: string): Promise<string> {
     return response;
   }
 
-  // /premium add ID
   if (subCommand === "add" || subCommand === "set") {
     if (!targetId) {
       return `⚠️ Format: <code>/premium add TELEGRAM_ID</code>`;
@@ -1308,7 +1674,6 @@ async function handlePremium(env: Bindings, arg: string): Promise<string> {
 
     const username = user.telegram_username ? `@${user.telegram_username}` : "(no username)";
     
-    // Notify user about premium upgrade
     try {
       await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, parseInt(targetId), 
         `🎉 <b>Selamat!</b>\n\nAkun kamu telah di-upgrade ke <b>Premium</b>!\n\n⭐ Benefit:\n• Unlimited email\n• Unlimited 2FA secrets\n• Unlimited inbox\n• Prioritas support`);
@@ -1319,7 +1684,6 @@ async function handlePremium(env: Bindings, arg: string): Promise<string> {
     return `✅ User ${username} (<code>${targetId}</code>) sekarang <b>Premium</b>!`;
   }
 
-  // /premium del ID
   if (subCommand === "del" || subCommand === "rm" || subCommand === "remove") {
     if (!targetId) {
       return `⚠️ Format: <code>/premium del TELEGRAM_ID</code>`;
@@ -1336,7 +1700,6 @@ async function handlePremium(env: Bindings, arg: string): Promise<string> {
     return `✅ Status premium user <code>${targetId}</code> dicabut.`;
   }
 
-  // /premium check ID
   if (subCommand === "check" || subCommand === "info") {
     if (!targetId) {
       return `⚠️ Format: <code>/premium check TELEGRAM_ID</code>`;
@@ -1386,7 +1749,6 @@ async function handleUsers(env: Bindings, arg: string): Promise<string> {
   const perPage = 20;
   const offset = (page - 1) * perPage;
 
-  // Get total count
   const totalResult = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first<{ count: number }>();
   const total = totalResult?.count || 0;
   const totalPages = Math.ceil(total / perPage);
@@ -1395,7 +1757,6 @@ async function handleUsers(env: Bindings, arg: string): Promise<string> {
     return `📭 Belum ada user terdaftar.`;
   }
 
-  // Get users with stats
   const users = await env.DB.prepare(`
     SELECT 
       u.id,
@@ -1440,17 +1801,14 @@ async function handleUsers(env: Bindings, arg: string): Promise<string> {
 async function handleMyStats(env: Bindings, telegramUserId: string): Promise<string> {
   const userId = await getUserId(env.DB, telegramUserId);
 
-  // Get user info and settings
   const user = await env.DB.prepare(
     "SELECT telegram_username, auto_delete_days, created_at FROM users WHERE id = ?"
   ).bind(userId).first() as any;
 
-  // Get email count
   const emailCount = await env.DB.prepare(
     "SELECT COUNT(*) as count FROM emails WHERE user_id = ?"
   ).bind(userId).first() as any;
 
-  // Get inbox count (total and unread)
   const inboxStats = await env.DB.prepare(`
     SELECT 
       COUNT(*) as total,
@@ -1460,12 +1818,10 @@ async function handleMyStats(env: Bindings, telegramUserId: string): Promise<str
     WHERE e.user_id = ?
   `).bind(userId).first() as any;
 
-  // Get 2FA count
   const totpCount = await env.DB.prepare(
     "SELECT COUNT(*) as count FROM totp_secrets WHERE user_id = ?"
   ).bind(userId).first() as any;
 
-  // Get email addresses
   const emails = await env.DB.prepare(
     "SELECT email_address FROM emails WHERE user_id = ? AND is_active = 1"
   ).bind(userId).all();
@@ -1505,7 +1861,6 @@ ${user?.telegram_username ? `📛 <b>Username:</b> @${user.telegram_username}` :
 async function handleBackup(env: Bindings, telegramUserId: string): Promise<string> {
   const userId = await getUserId(env.DB, telegramUserId);
 
-  // Get all 2FA secrets
   const secrets = await env.DB.prepare(
     "SELECT name, secret, created_at FROM totp_secrets WHERE user_id = ? ORDER BY name"
   ).bind(userId).all();
@@ -1516,7 +1871,6 @@ async function handleBackup(env: Bindings, telegramUserId: string): Promise<stri
 ➕ Tambah secret: <code>/2fa add nama SECRET</code>`;
   }
 
-  // Format as text backup
   let backup = `🔐 BACKUP 2FA SECRETS
 📅 ${new Date().toISOString().split('T')[0]}
 👤 User: ${telegramUserId}
@@ -1554,7 +1908,6 @@ Ini akan generate QR code untuk secret tersimpan.`;
   const userId = await getUserId(env.DB, telegramUserId);
   const name = arg.toLowerCase().trim();
 
-  // Get secret from database
   const result = await env.DB.prepare(
     "SELECT secret FROM totp_secrets WHERE user_id = ? AND name = ?"
   ).bind(userId, name).first() as any;
@@ -1565,13 +1918,9 @@ Ini akan generate QR code untuk secret tersimpan.`;
 📋 Lihat daftar: <code>/2fa list</code>`;
   }
 
-  // Generate otpauth URI
   const otpauthUri = `otpauth://totp/${encodeURIComponent(name)}?secret=${result.secret}&issuer=TempEmailBot`;
-  
-  // Use QR Server API (free, no auth required)
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(otpauthUri)}`;
 
-  // Send QR code as photo to Telegram
   try {
     await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
       method: "POST",
@@ -1595,11 +1944,10 @@ Ini akan generate QR code untuk secret tersimpan.`;
 ⚠️ Jangan bagikan!`;
   }
 
-  // Return empty since we sent the photo
   return "";
 }
 
-async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolean, telegramUserId: string): Promise<string> {
+async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolean, telegramUserId: string): Promise<CommandResponse> {
   const lang = getLang(await getUserLanguage(db, telegramUserId));
   const defaultDomain = domains[0] || "example.com";
   const or = lang === "id" ? "atau" : "or";
@@ -1614,40 +1962,24 @@ ${t(lang, "welcome_desc")}
 ━━━ ${t(lang, "email_section")} ━━━
 
 <b>/create</b> ${or} <b>/c</b> <code>nama</code>
-${t(lang, "create_desc")} (→ <code>nama@${defaultDomain}</code>)
-→ <code>/c tokoku</code>${multiDomainInfo}
+${t(lang, "create_desc")} (→ <code>nama@${defaultDomain}</code>)${multiDomainInfo}
 
 <b>/mails</b> ${or} <b>/m</b> <code>nama</code>
 ${t(lang, "mails_desc")}
-→ <code>/m tokoku</code>
-
-<b>/read</b> ${or} <b>/r</b> <code>id</code>
-${t(lang, "read_desc")}
-→ <code>/r 5</code>
 
 <b>/search</b> ${or} <b>/s</b> <code>kata</code>
 ${t(lang, "search_desc")}
-→ <code>/s verifikasi</code>
 
 ━━━ ${t(lang, "twofa_section")} ━━━
 
 <b>/2fa</b> ${or} <b>/a</b> <code>secret</code>
 ${t(lang, "twofa_desc")}
-→ <code>/a JBSWY3DPEHPK3PXP</code>
 
 <b>/2fa add</b> <code>nama secret</code>
 ${t(lang, "twofa_add_desc")}
-→ <code>/a add google SECRET</code>
 
-<b>/2fa list</b> ${or} <b>/a list</b>
+<b>/2fa list</b>
 ${t(lang, "twofa_list_desc")}
-
-<b>/qr</b> <code>nama</code>
-${t(lang, "qr_desc")}
-→ <code>/qr google</code>
-
-<b>/backup</b>
-${t(lang, "backup_desc")}
 
 ━━━ ${t(lang, "account_section")} ━━━
 
@@ -1657,53 +1989,25 @@ ${t(lang, "mystats_desc")}
 <b>/setting</b>
 ${t(lang, "settings_desc")}
 
-<b>/lang</b>
-${t(lang, "lang_desc")}
-
-━━━ ${t(lang, "shortcuts")} ━━━
-<code>/c</code> create, <code>/m</code> mails, <code>/r</code> read
-<code>/s</code> search, <code>/a</code> 2fa, <code>/me</code> stats`;
+━━━━━━━━━━━━━━━
+💡 Gunakan /menu untuk navigasi dengan tombol`;
 
   if (isAdmin) {
     message += `
 
 ━━━ ${t(lang, "admin_section")} ━━━
-
-<b>/list</b> ${or} <b>/e</b>
-${t(lang, "list_desc")}
-
-<b>/stats</b>
-${t(lang, "stats_desc")}
-
-<b>/blacklist</b> <code>add/del/list</code>
-${t(lang, "blacklist_desc")}
-→ <code>/blacklist add spam@evil.com</code>
-
-<b>/cleanup</b>
-${t(lang, "cleanup_desc")}
-
-<b>/delete</b> ${or} <b>/d</b> <code>nama</code>
-${t(lang, "delete_desc")}
-→ <code>/d tokoku</code>
-
-<b>/broadcast</b> ${or} <b>/bc</b> <code>pesan</code>
-${t(lang, "broadcast_desc")}
-→ <code>/bc Maintenance jam 10</code>
-
-<b>/users</b> ${or} <b>/u</b>
-${t(lang, "users_desc")}
-→ <code>/u 2</code> (${lang === "id" ? "halaman 2" : "page 2"})
-
-<b>/premium</b> ${or} <b>/p</b>
-${t(lang, "premium_desc")}
-→ <code>/p add 123456789</code>`;
+/stats, /users, /premium, /blacklist, /cleanup, /broadcast`;
   }
 
-  return message;
+  return {
+    text: message,
+    keyboard: buildMainMenuKeyboard(lang, isAdmin)
+  };
 }
 
 async function handleCreate(env: Bindings, telegramUserId: string, name: string): Promise<CommandResponse> {
   const domains = getDomains(env);
+  const lang = getLang(await getUserLanguage(env.DB, telegramUserId));
   
   if (domains.length === 0) {
     return `❌ Error: Tidak ada domain yang dikonfigurasi. Hubungi admin.`;
@@ -1716,13 +2020,15 @@ async function handleCreate(env: Bindings, telegramUserId: string, name: string)
     if (domains.length > 1) {
       example += `\n<code>/create tokoku@${domains[1]}</code> (pilih domain)`;
     }
-    return `⚠️ Masukkan nama untuk email.
+    return {
+      text: `⚠️ Masukkan nama untuk email.
 
 Contoh: ${example}
-→ Akan membuat <code>tokoku@${defaultDomain}</code>`;
+→ Akan membuat <code>tokoku@${defaultDomain}</code>`,
+      keyboard: buildBackButton("menu:email", lang)
+    };
   }
 
-  // Parse name@domain format
   let localPart: string;
   let selectedDomain: string;
   
@@ -1731,7 +2037,6 @@ Contoh: ${example}
     localPart = parts[0].toLowerCase().replace(/[^a-z0-9]/g, "");
     const requestedDomain = parts[1]?.toLowerCase().trim();
     
-    // Check if domain is valid
     if (requestedDomain && domains.map(d => d.toLowerCase()).includes(requestedDomain)) {
       selectedDomain = requestedDomain;
     } else if (requestedDomain) {
@@ -1763,10 +2068,11 @@ Contoh: <code>/create ${localPart}@${defaultDomain}</code>`;
       text: `📧 ${localPart}@${domain}`,
       callback_data: `create:${localPart}:${domain}`
     }]);
+    keyboard.push([{ text: t(lang, "back_to_menu"), callback_data: "menu:email" }]);
     
     return {
       text: `📧 <b>Pilih domain untuk: ${localPart}</b>\n\n👇 Tap untuk memilih:`,
-      keyboard
+      keyboard: { inline_keyboard: keyboard }
     };
   }
 
@@ -1787,7 +2093,6 @@ Coba nama lain, contoh: <code>/create ${localPart}123</code>`;
     return `❌ Error: User tidak ditemukan.`;
   }
 
-  // Check premium limits
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
   if (!isAdmin) {
     const limits = await checkUserLimits(env.DB, telegramUserId, 'email');
@@ -1798,8 +2103,7 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> email.
 
 🗑️ Hapus email lama dengan <code>/delete nama</code>
 
-⭐ Atau upgrade ke <b>Premium</b> untuk unlimited email!
-Hubungi admin untuk info lebih lanjut.`;
+⭐ Atau upgrade ke <b>Premium</b> untuk unlimited email!`;
     }
   }
 
@@ -1807,35 +2111,48 @@ Hubungi admin untuk info lebih lanjut.`;
     .bind(userId, emailAddress, localPart)
     .run();
 
-  return `✅ <b>Email berhasil dibuat!</b>
+  return {
+    text: `✅ <b>Email berhasil dibuat!</b>
 
 📧 <code>${emailAddress}</code>
 
-Gunakan alamat ini untuk menerima email. Ketika ada email masuk, kamu akan mendapat notifikasi di sini.
-
-📬 Cek inbox: <code>/mails ${localPart}</code>`;
+Gunakan alamat ini untuk menerima email. Ketika ada email masuk, kamu akan mendapat notifikasi di sini.`,
+    keyboard: {
+      inline_keyboard: [
+        [
+          { text: "📬 Cek Inbox", callback_data: `mails:${localPart}` },
+          { text: "📋 Daftar Email", callback_data: "action:list" }
+        ],
+        [
+          { text: t(lang, "back_to_menu"), callback_data: "menu:email" }
+        ]
+      ]
+    }
+  };
 }
 
 async function handleMails(env: Bindings, telegramUserId: string, identifier: string): Promise<CommandResponse> {
   const domains = getDomains(env);
   const defaultDomain = domains[0] || "example.com";
+  const lang = getLang(await getUserLanguage(env.DB, telegramUserId));
   
   if (!identifier) {
-    return `⚠️ Masukkan nama email yang ingin dicek.
+    return {
+      text: `⚠️ Masukkan nama email yang ingin dicek.
 
 Contoh: <code>/mails tokoku</code>
 
-📋 Lihat semua email: <code>/list</code>`;
+📋 Lihat semua email: <code>/list</code>`,
+      keyboard: buildBackButton("menu:email", lang)
+    };
   }
 
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
   
-  // Support both "nama" and "nama@domain" formats
   let emailAddress: string;
   if (identifier.includes("@")) {
     emailAddress = identifier.toLowerCase();
   } else {
-    // Try to find email with this name in any domain (user's own emails)
     const userId = await getUserId(env.DB, telegramUserId);
     if (userId) {
       const found = await env.DB.prepare(
@@ -1854,7 +2171,6 @@ Contoh: <code>/mails tokoku</code>
 
   let email;
   if (isAdmin) {
-    // Admin can view any email
     email = await env.DB.prepare(
       "SELECT id, email_address FROM emails WHERE LOWER(email_address) = ? AND is_active = 1"
     )
@@ -1873,9 +2189,12 @@ Contoh: <code>/mails tokoku</code>
   }
 
   if (!email) {
-    return `⚠️ Email <code>${emailAddress}</code> tidak ditemukan.
+    return {
+      text: `⚠️ Email <code>${emailAddress}</code> tidak ditemukan.
 
-📋 Lihat semua email: <code>/list</code>`;
+📋 Lihat semua email: <code>/list</code>`,
+      keyboard: buildBackButton("menu:email", lang)
+    };
   }
 
   const result = await env.DB.prepare(
@@ -1886,21 +2205,29 @@ Contoh: <code>/mails tokoku</code>
     .all();
 
   if (!result.results || result.results.length === 0) {
-    return `📭 <b>Inbox kosong</b>
+    return {
+      text: `📭 <b>Inbox kosong</b>
 
 📧 <code>${email.email_address}</code>
 
-Belum ada email masuk. Gunakan alamat di atas untuk menerima email.`;
+Belum ada email masuk. Gunakan alamat di atas untuk menerima email.`,
+      keyboard: {
+        inline_keyboard: [
+          [{ text: "🔄 Refresh", callback_data: `mails:${emailAddress.split("@")[0]}` }],
+          [{ text: t(lang, "back_to_menu"), callback_data: "menu:email" }]
+        ]
+      }
+    };
   }
 
   let response = `📬 <b>Inbox: ${email.email_address}</b>
 
 `;
 
-  // Build keyboard with read buttons (max 5 per row, max 3 rows)
   const keyboard: any[][] = [];
   const messages = result.results as any[];
   
+  // Read buttons (max 5 per row, max 3 rows)
   for (let i = 0; i < Math.min(messages.length, 15); i += 5) {
     const row = messages.slice(i, i + 5).map((msg: any) => ({
       text: `📖 ${msg.id}`,
@@ -1919,21 +2246,29 @@ Belum ada email masuk. Gunakan alamat di atas untuk menerima email.`;
 
   response += `
 ━━━━━━━━━━━━━━━
-👆 Tap tombol di atas untuk baca email`;
+👆 Tap tombol untuk baca email`;
 
   const localPart = email.email_address.split("@")[0];
   keyboard.push([
     { text: "🔄 Refresh", callback_data: `mails:${localPart}` }
   ]);
+  keyboard.push([
+    { text: t(lang, "back_to_menu"), callback_data: "menu:email" }
+  ]);
 
-  return { text: response, keyboard };
+  return { text: response, keyboard: { inline_keyboard: keyboard } };
 }
 
-async function handleRead(env: Bindings, telegramUserId: string, messageId: string): Promise<string> {
+async function handleRead(env: Bindings, telegramUserId: string, messageId: string): Promise<CommandResponse> {
+  const lang = getLang(await getUserLanguage(env.DB, telegramUserId));
+  
   if (!messageId || isNaN(parseInt(messageId))) {
-    return `⚠️ Masukkan ID email yang ingin dibaca.
+    return {
+      text: `⚠️ Masukkan ID email yang ingin dibaca.
 
-Contoh: <code>/read 5</code>`;
+Contoh: <code>/read 5</code>`,
+      keyboard: buildBackButton("menu:email", lang)
+    };
   }
 
   const userId = await getUserId(env.DB, telegramUserId);
@@ -1943,24 +2278,23 @@ Contoh: <code>/read 5</code>`;
 
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
 
-  // Admin can read any email, regular users only their own
   let msg;
   if (isAdmin) {
     msg = await env.DB.prepare(
-      `SELECT i.*, e.email_address FROM inbox i 
+      `SELECT i.*, e.email_address, e.local_part FROM inbox i 
        JOIN emails e ON i.email_id = e.id 
        WHERE i.id = ?`
     )
       .bind(parseInt(messageId))
-      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; received_at: string }>();
+      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; local_part: string; received_at: string }>();
   } else {
     msg = await env.DB.prepare(
-      `SELECT i.*, e.email_address FROM inbox i 
+      `SELECT i.*, e.email_address, e.local_part FROM inbox i 
        JOIN emails e ON i.email_id = e.id 
        WHERE i.id = ? AND e.user_id = ?`
     )
       .bind(parseInt(messageId), userId)
-      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; received_at: string }>();
+      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; local_part: string; received_at: string }>();
   }
 
   if (!msg) {
@@ -1971,12 +2305,10 @@ Contoh: <code>/read 5</code>`;
 
   let rawBody = msg.body || "(Tidak ada isi)";
   
-  // Check if body is still base64 encoded and decode it
   if (isBase64(rawBody)) {
     rawBody = decodeBase64(rawBody);
   }
   
-  // Also check for base64 blocks within the body
   const base64Match = rawBody.match(/([A-Za-z0-9+/]{100,}=*)/);
   if (base64Match && isBase64(base64Match[1])) {
     try {
@@ -1989,7 +2321,8 @@ Contoh: <code>/read 5</code>`;
   
   const body = stripHtml(rawBody).substring(0, 3000);
 
-  return `📧 <b>Email #${msg.id}</b>
+  return {
+    text: `📧 <b>Email #${msg.id}</b>
 
 📬 <b>Ke:</b> ${msg.email_address}
 👤 <b>Dari:</b> ${msg.sender}
@@ -1997,13 +2330,24 @@ Contoh: <code>/read 5</code>`;
 ⏰ <b>Waktu:</b> ${msg.received_at}
 
 ━━━━━━━━━━━━━━━
-${body}`;
+${body}`,
+    keyboard: {
+      inline_keyboard: [
+        [
+          { text: "📬 Kembali ke Inbox", callback_data: `mails:${msg.local_part}` }
+        ],
+        [
+          { text: t(lang, "back_to_menu"), callback_data: "menu:email" }
+        ]
+      ]
+    }
+  };
 }
 
-async function handleList(env: Bindings, telegramUserId: string): Promise<string> {
+async function handleList(env: Bindings, telegramUserId: string): Promise<CommandResponse> {
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
+  const lang = getLang(await getUserLanguage(env.DB, telegramUserId));
 
-  // Admin sees ALL emails, regular users see only their own
   let result;
   if (isAdmin) {
     result = await env.DB.prepare(
@@ -2032,12 +2376,20 @@ async function handleList(env: Bindings, telegramUserId: string): Promise<string
   const isAdminView = telegramUserId === env.ADMIN_USER_ID;
 
   if (!result.results || result.results.length === 0) {
-    return isAdminView 
-      ? `📭 <b>Belum ada email terdaftar.</b>`
-      : `📭 <b>Kamu belum punya email.</b>
+    return {
+      text: isAdminView 
+        ? `📭 <b>Belum ada email terdaftar.</b>`
+        : `📭 <b>Kamu belum punya email.</b>
 
 Buat email baru dengan:
-<code>/create namaemailmu</code>`;
+<code>/create namaemailmu</code>`,
+      keyboard: {
+        inline_keyboard: [
+          [{ text: "➕ Buat Email Baru", callback_data: "action:create_prompt" }],
+          [{ text: t(lang, "back_to_menu"), callback_data: "menu:email" }]
+        ]
+      }
+    };
   }
 
   let response = isAdminView 
@@ -2048,20 +2400,34 @@ Buat email baru dengan:
 
 `;
 
-  for (const email of result.results as any[]) {
+  // Build keyboard with inbox buttons
+  const keyboard: any[][] = [];
+  const emails = result.results as any[];
+  
+  for (let i = 0; i < Math.min(emails.length, 9); i += 3) {
+    const row = emails.slice(i, i + 3).map((email: any) => ({
+      text: `📬 ${email.local_part}${email.unread_count > 0 ? ` (${email.unread_count})` : ''}`,
+      callback_data: `mails:${email.local_part}`
+    }));
+    keyboard.push(row);
+  }
+
+  for (const email of emails) {
     const unread = email.unread_count > 0 ? ` (📩 ${email.unread_count} baru)` : "";
     const owner = isAdminView && email.telegram_username ? ` [@${email.telegram_username}]` : "";
     response += `📧 <code>${email.email_address}</code>${unread}${owner}
-   📬 ${email.message_count} pesan | 📅 ${email.created_at}
+   📬 ${email.message_count} pesan
 
 `;
   }
 
   response += `━━━━━━━━━━━━━━━
-📬 Cek inbox: <code>/mails nama</code>
-🗑 Hapus: <code>/delete nama</code>`;
+👆 Tap tombol untuk cek inbox`;
 
-  return response;
+  keyboard.push([{ text: "➕ Buat Email Baru", callback_data: "action:create_prompt" }]);
+  keyboard.push([{ text: t(lang, "back_to_menu"), callback_data: "menu:email" }]);
+
+  return { text: response, keyboard: { inline_keyboard: keyboard } };
 }
 
 async function handleDelete(env: Bindings, telegramUserId: string, identifier: string): Promise<string> {
@@ -2109,7 +2475,6 @@ async function ensureUser(db: D1Database, telegramUserId: string, username?: str
       .bind(telegramUserId, username || null)
       .run();
     
-    // Notify admin about new user (Login Alert)
     if (env && env.ADMIN_USER_ID && telegramUserId !== env.ADMIN_USER_ID) {
       const usernameDisplay = username ? `@${username}` : "(no username)";
       const alertText = `🆕 <b>User Baru Bergabung!</b>
@@ -2128,7 +2493,6 @@ async function ensureUser(db: D1Database, telegramUserId: string, username?: str
     return { isNew: true };
   }
   
-  // Update username if changed
   if (username) {
     await db
       .prepare("UPDATE users SET telegram_username = ? WHERE telegram_user_id = ?")
@@ -2166,11 +2530,10 @@ async function setUserLanguage(db: D1Database, telegramUserId: string, lang: Lan
     .run();
 }
 
-// Premium limits (inbox is soft limit - handled by auto-cleanup)
 const LIMITS = {
   FREE_MAX_EMAILS: 3,
   FREE_MAX_2FA: 5,
-  FREE_MAX_INBOX: 50, // Soft limit - shows warning, auto-cleaned on /cleanup
+  FREE_MAX_INBOX: 50,
 };
 
 async function checkPremiumStatus(db: D1Database, telegramUserId: string): Promise<{ isPremium: boolean; userId: number | null }> {
@@ -2241,7 +2604,6 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
   };
   
   if (keyboard) {
-    // Handle both formats: { inline_keyboard: [...] } or just [...]
     if (keyboard.inline_keyboard) {
       body.reply_markup = keyboard;
     } else {
@@ -2262,13 +2624,12 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
 
 function decodeQuotedPrintable(str: string): string {
   return str
-    .replace(/=\r?\n/g, '') // Remove soft line breaks
+    .replace(/=\r?\n/g, '')
     .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 function decodeBase64(str: string): string {
   try {
-    // Clean the string - remove line breaks and whitespace
     const clean = str.replace(/[\r\n\s]/g, '');
     return atob(clean);
   } catch {
@@ -2277,14 +2638,13 @@ function decodeBase64(str: string): string {
 }
 
 function extractMimePart(rawEmail: string, contentType: string): string | null {
-  // Find the content type section
   const regex = new RegExp(
     `Content-Type:\\s*${contentType}[^\\r\\n]*[\\r\\n]+` +
     `(?:Content-Transfer-Encoding:\\s*([^\\r\\n]+)[\\r\\n]+)?` +
-    `(?:[^\\r\\n]+:[^\\r\\n]*[\\r\\n]+)*` + // Other headers
-    `[\\r\\n]+` + // Empty line before content
-    `([\\s\\S]*?)` + // Content
-    `(?=--[\\w-]+|$)`, // Until boundary or end
+    `(?:[^\\r\\n]+:[^\\r\\n]*[\\r\\n]+)*` +
+    `[\\r\\n]+` +
+    `([\\s\\S]*?)` +
+    `(?=--[\\w-]+|$)`,
     'i'
   );
   
@@ -2294,10 +2654,8 @@ function extractMimePart(rawEmail: string, contentType: string): string | null {
   const encoding = (match[1] || '').toLowerCase().trim();
   let content = match[2] || '';
   
-  // Remove any remaining boundaries
   content = content.replace(/--[\w-]+--?\s*$/g, '').trim();
   
-  // Decode based on encoding
   if (encoding === 'base64') {
     content = decodeBase64(content);
   } else if (encoding === 'quoted-printable') {
@@ -2308,42 +2666,33 @@ function extractMimePart(rawEmail: string, contentType: string): string | null {
 }
 
 function isBase64(str: string): boolean {
-  // Check if string looks like base64 (only valid base64 chars)
   const clean = str.replace(/[\r\n\s]/g, '');
   if (clean.length < 20) return false;
-  // Check for valid base64 characters (allow padding at end)
   if (!/^[A-Za-z0-9+/]+=*$/.test(clean)) return false;
-  // Try to decode - if it produces valid UTF-8, it's likely base64
   try {
     const decoded = atob(clean);
-    // Check if decoded content looks like text (has printable chars)
     return /[a-zA-Z<>]/.test(decoded);
   } catch {
     return false;
   }
 }
 
-// Extract important links from email (verification, confirmation, etc.)
 function extractLinks(rawEmail: string): string[] {
   const links: string[] = [];
   const seen = new Set<string>();
   
-  // Decode email content first
   let content = rawEmail;
   
-  // Try to get HTML content for link extraction
   const htmlContent = extractMimePart(rawEmail, 'text/html');
   if (htmlContent) {
     content = htmlContent;
   }
   
-  // Also try plain text
   const plainText = extractMimePart(rawEmail, 'text/plain');
   if (plainText) {
     content += '\n' + plainText;
   }
   
-  // Keywords that indicate important links
   const importantKeywords = [
     'verify', 'confirm', 'activate', 'validation', 'reset',
     'verifikasi', 'konfirmasi', 'aktifasi',
@@ -2351,17 +2700,14 @@ function extractLinks(rawEmail: string): string[] {
     'click', 'klik', 'button', 'action'
   ];
   
-  // Extract href links from HTML
   const hrefRegex = /href=["']([^"']+)["']/gi;
   let match;
   while ((match = hrefRegex.exec(content)) !== null) {
     const url = match[1];
     if (url && url.startsWith('http') && !seen.has(url)) {
-      // Check if URL or surrounding context contains important keywords
       const urlLower = url.toLowerCase();
       const isImportant = importantKeywords.some(kw => urlLower.includes(kw));
       
-      // Skip common non-verification links
       const skipPatterns = [
         'unsubscribe', 'mailto:', 'facebook.com', 'twitter.com', 'linkedin.com',
         'instagram.com', 'youtube.com', 'privacy', 'terms', 'help', 'support',
@@ -2376,11 +2722,10 @@ function extractLinks(rawEmail: string): string[] {
     }
   }
   
-  // If no important links found, try to find any action URLs
   if (links.length === 0) {
     const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
     while ((match = urlRegex.exec(content)) !== null) {
-      const url = match[0].replace(/[.,;:!?)>\]]+$/, ''); // Clean trailing punctuation
+      const url = match[0].replace(/[.,;:!?)>\]]+$/, '');
       if (url.length > 20 && !seen.has(url)) {
         const urlLower = url.toLowerCase();
         const skipPatterns = [
@@ -2392,7 +2737,7 @@ function extractLinks(rawEmail: string): string[] {
         if (!shouldSkip) {
           seen.add(url);
           links.push(url);
-          if (links.length >= 3) break; // Limit fallback links
+          if (links.length >= 3) break;
         }
       }
     }
@@ -2402,10 +2747,8 @@ function extractLinks(rawEmail: string): string[] {
 }
 
 function extractEmailBody(rawEmail: string): string {
-  // Try to extract plain text content first (preferred)
   const plainText = extractMimePart(rawEmail, 'text/plain');
   if (plainText && plainText.trim().length > 20) {
-    // Check if it's actually base64 that wasn't decoded
     const trimmed = plainText.trim();
     if (isBase64(trimmed)) {
       const decoded = decodeBase64(trimmed);
@@ -2414,11 +2757,9 @@ function extractEmailBody(rawEmail: string): string {
     return trimmed.substring(0, 4000);
   }
   
-  // Try HTML content
   const htmlContent = extractMimePart(rawEmail, 'text/html');
   if (htmlContent && htmlContent.trim().length > 0) {
     let content = htmlContent.trim();
-    // Check if it's base64 encoded
     if (isBase64(content)) {
       content = decodeBase64(content);
     }
@@ -2428,11 +2769,8 @@ function extractEmailBody(rawEmail: string): string {
     }
   }
   
-  // Fallback: try to find any readable content
-  // Remove email headers (everything before first empty line)
   let body = rawEmail.replace(/^[\s\S]*?\r?\n\r?\n/, '');
   
-  // Remove MIME boundaries and headers
   body = body
     .replace(/--[\w-]+[^\n]*/g, '')
     .replace(/Content-Type:[^\n]*/gi, '')
@@ -2441,12 +2779,10 @@ function extractEmailBody(rawEmail: string): string {
     .replace(/charset="?[^"\s]*"?/gi, '')
     .trim();
   
-  // Check if remaining body is base64
   if (isBase64(body)) {
     body = decodeBase64(body);
   }
   
-  // Try to find base64 blocks in the body
   const base64Match = body.match(/([A-Za-z0-9+/]{50,}=*)/);
   if (base64Match) {
     try {
@@ -2462,25 +2798,17 @@ function extractEmailBody(rawEmail: string): string {
 
 function stripHtml(html: string): string {
   return html
-    // Remove DOCTYPE
     .replace(/<!DOCTYPE[^>]*>/gi, '')
-    // Remove comments
     .replace(/<!--[\s\S]*?-->/g, '')
-    // Remove style tags and content
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    // Remove script tags and content
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    // Remove head section
     .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
-    // Convert <br> and </p> to newlines
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<\/tr>/gi, '\n')
     .replace(/<\/li>/gi, '\n')
-    // Remove all remaining HTML tags
     .replace(/<[^>]+>/g, '')
-    // Decode HTML entities
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -2490,14 +2818,12 @@ function stripHtml(html: string): string {
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)))
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-    // Remove soft hyphens and invisible characters
-    .replace(/\u00AD/g, '') // Soft hyphen
-    .replace(/Â­/g, '') // Soft hyphen (encoded)
-    .replace(/&shy;/g, '') // Soft hyphen entity
-    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
-    .replace(/[\u2028\u2029]/g, '\n') // Line/paragraph separators
-    .replace(/[^\x20-\x7E\n\r\u00A0-\u00FF\u0100-\u017F]/g, '') // Remove other non-printable
-    // Clean up whitespace
+    .replace(/\u00AD/g, '')
+    .replace(/Â­/g, '')
+    .replace(/&shy;/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[\u2028\u2029]/g, '\n')
+    .replace(/[^\x20-\x7E\n\r\u00A0-\u00FF\u0100-\u017F]/g, '')
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]+/g, ' ')
@@ -2505,10 +2831,10 @@ function stripHtml(html: string): string {
     .trim()
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/=\r?\n/g, '') // Quoted-printable soft line breaks
-    .replace(/=20/g, ' ') // Quoted-printable space
-    .replace(/=3D/g, '=') // Quoted-printable equals
-    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))) // Other QP chars
+    .replace(/=\r?\n/g, '')
+    .replace(/=20/g, ' ')
+    .replace(/=3D/g, '=')
+    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     .replace(/\s+/g, ' ')
     .trim();
 }
