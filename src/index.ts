@@ -2490,6 +2490,13 @@ function stripHtml(html: string): string {
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)))
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    // Remove soft hyphens and invisible characters
+    .replace(/\u00AD/g, '') // Soft hyphen
+    .replace(/Â­/g, '') // Soft hyphen (encoded)
+    .replace(/&shy;/g, '') // Soft hyphen entity
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+    .replace(/[\u2028\u2029]/g, '\n') // Line/paragraph separators
+    .replace(/[^\x20-\x7E\n\r\u00A0-\u00FF\u0100-\u017F]/g, '') // Remove other non-printable
     // Clean up whitespace
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
