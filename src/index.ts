@@ -1969,7 +1969,24 @@ Contoh: <code>/read 5</code>`;
 
   await env.DB.prepare("UPDATE inbox SET is_read = 1 WHERE id = ?").bind(parseInt(messageId)).run();
 
-  const rawBody = msg.body || "(Tidak ada isi)";
+  let rawBody = msg.body || "(Tidak ada isi)";
+  
+  // Check if body is still base64 encoded and decode it
+  if (isBase64(rawBody)) {
+    rawBody = decodeBase64(rawBody);
+  }
+  
+  // Also check for base64 blocks within the body
+  const base64Match = rawBody.match(/([A-Za-z0-9+/]{100,}=*)/);
+  if (base64Match && isBase64(base64Match[1])) {
+    try {
+      const decoded = decodeBase64(base64Match[1]);
+      if (decoded.includes('<') || /[a-zA-Z]{3,}/.test(decoded)) {
+        rawBody = decoded;
+      }
+    } catch {}
+  }
+  
   const body = stripHtml(rawBody).substring(0, 3000);
 
   return `📧 <b>Email #${msg.id}</b>
