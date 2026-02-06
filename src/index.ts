@@ -506,14 +506,14 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
         const botToken = env.TELEGRAM_BOT_TOKEN;
         if (botToken && env.ADMIN_USER_ID) {
           const msgId = inboxResult?.id || "";
+          const catchAllBody = body ? body.substring(0, 3000).trim() : "";
           const notificationText = `📨 <b>Email Baru (Catch-All)</b>
 
 📧 <b>Ke:</b> ${toAddress}
 👤 <b>Dari:</b> ${senderDisplay}
 📋 <b>Subjek:</b> ${subject}
 
-📖 Baca: <code>/read ${msgId}</code>
-📬 Inbox: <code>/mails ${localPart}</code>`;
+${catchAllBody}${body && body.length > 3000 ? "\n\n<i>... (pesan terpotong)</i>" : ""}`;
           
           // Add inline button to read
           const keyboard = {
@@ -552,18 +552,15 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
     }
   }
 
+  const bodyPreview = body ? body.substring(0, 3000).trim() : "";
+  
   let notificationText = `📬 <b>Email Baru!</b>
 
 📧 <b>Ke:</b> ${toAddress}
 👤 <b>Dari:</b> ${senderDisplay}
-📋 <b>Subjek:</b> ${subject}`;
+📋 <b>Subjek:</b> ${subject}
 
-  if (links.length > 0) {
-    notificationText += `\n\n🔗 <b>Link ditemukan:</b>`;
-    for (const link of links.slice(0, 5)) {
-      notificationText += `\n• ${link}`;
-    }
-  }
+${bodyPreview}${body && body.length > 3000 ? "\n\n<i>... (pesan terpotong)</i>" : ""}`;
 
   const msgId = inboxResult?.id || "";
   const localPart = toAddress.split("@")[0];
