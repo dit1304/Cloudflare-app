@@ -1,14 +1,29 @@
+# Cloudflare Workers Configuration
 name = "temp-email-bot"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
+# Environment Variables (non-sensitive)
 [vars]
+# Comma-separated list of domains for email routing
 TEMP_EMAIL_DOMAIN = "zerostore.tech,zerostore.dev,zsmail.me"
-ADMIN_USER_ID = "1462157376"
-FALLBACK_EMAIL = "didit.pamuji@gmail.com"
-WORKER_URL="temp-email-bot.2026-025.workers.dev"
 
+# Telegram User ID of bot admin
+# Get your ID from @userinfobot
+ADMIN_USER_ID = "1462157376"
+
+# Fallback email for forwarding (optional)
+FALLBACK_EMAIL = "didit.pamuji@gmail.com"
+
+# Worker URL (used for webhook setup)
+WORKER_URL = "temp-email-bot.2026-025.workers.dev"
+
+# D1 Database Binding
+# Create database with: npx wrangler d1 create temp-email-db
 [[d1_databases]]
 binding = "DB"
 database_name = "temp-email-db"
 database_id = "fc2573ff-11f7-478f-a67e-591d6fc853c8"
+
+# Secrets (sensitive data - use wrangler secret put)
+# TELEGRAM_BOT_TOKEN - Set with: npx wrangler secret put TELEGRAM_BOT_TOKEN
