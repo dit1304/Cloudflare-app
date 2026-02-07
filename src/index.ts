@@ -19,7 +19,7 @@ import {
   handleSuspendDomain,
   handleDomainInfo
 } from "./handlers/admin-domain-handlers";
-import { getDomainById } from "./services/custom-domains";
+import { getDomainById, getDomainByName } from "./services/custom-domains";
 
 type Bindings = {
   DB: D1Database;
