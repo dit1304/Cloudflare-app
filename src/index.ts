@@ -2292,7 +2292,10 @@ Contoh: <code>/read 5</code>`,
 
   const userId = await getUserId(env.DB, telegramUserId);
   if (!userId) {
-    return `❌ Error: User tidak ditemukan.`;
+    return {
+      text: `❌ Error: User tidak ditemukan.\n\nKetik /start untuk register.`,
+      keyboard: buildBackButton("menu:main", lang)
+    };
   }
 
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
@@ -2317,28 +2320,16 @@ Contoh: <code>/read 5</code>`,
   }
 
   if (!msg) {
-    return `⚠️ Email dengan ID ${messageId} tidak ditemukan atau bukan milik kamu.`;
+    return {
+      text: `⚠️ Email dengan ID ${messageId} tidak ditemukan atau bukan milik kamu.`,
+      keyboard: buildBackButton("menu:email", lang)
+    };
   }
 
   await env.DB.prepare("UPDATE inbox SET is_read = 1 WHERE id = ?").bind(parseInt(messageId)).run();
 
-  let rawBody = msg.body || "(Tidak ada isi)";
-  
-  if (isBase64(rawBody)) {
-    rawBody = decodeBase64(rawBody);
-  }
-  
-  const base64Match = rawBody.match(/([A-Za-z0-9+/]{100,}=*)/);
-  if (base64Match && isBase64(base64Match[1])) {
-    try {
-      const decoded = decodeBase64(base64Match[1]);
-      if (decoded.includes('<') || /[a-zA-Z]{3,}/.test(decoded)) {
-        rawBody = decoded;
-      }
-    } catch {}
-  }
-  
-  const body = stripHtml(rawBody).substring(0, 3000);
+  // Use enhanced stripHtml from email-parser (already imported)
+  const body = stripHtml(msg.body || "(Tidak ada isi)").substring(0, 3000);
 
   return {
     text: `📧 <b>Email #${msg.id}</b>
@@ -2369,13 +2360,14 @@ async function handleList(env: Bindings, telegramUserId: string): Promise<Comman
 
   let result;
   if (isAdmin) {
+    // Admin: Limit to 20 emails to avoid Telegram rate limit
     result = await env.DB.prepare(
       `SELECT e.email_address, e.local_part, e.created_at, u.telegram_username,
        (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
        (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
        FROM emails e 
        JOIN users u ON e.user_id = u.id
-       WHERE e.is_active = 1 ORDER BY e.created_at DESC`
+       WHERE e.is_active = 1 ORDER BY e.created_at DESC LIMIT 20`
     ).all();
   } else {
     const userId = await getUserId(env.DB, telegramUserId);
@@ -2414,17 +2406,21 @@ Buat email baru dengan:
     };
   }
 
+  const emails = result.results as any[];
+  const totalCount = emails.length;
+  
   let response = isAdminView 
     ? `📋 <b>Semua Email (Admin View)</b>
+
+📊 Showing ${totalCount} emails (max 20 per page)
 
 `
     : `📋 <b>Daftar Email Kamu</b>
 
 `;
 
-  // Build keyboard with inbox buttons
+  // Build keyboard with inbox buttons (limit to 9 for cleaner UI)
   const keyboard: any[][] = [];
-  const emails = result.results as any[];
   
   for (let i = 0; i < Math.min(emails.length, 9); i += 3) {
     const row = emails.slice(i, i + 3).map((email: any) => ({
@@ -2434,13 +2430,20 @@ Buat email baru dengan:
     keyboard.push(row);
   }
 
-  for (const email of emails) {
+  // Display email list (limit to 15 to avoid message length issues)
+  const displayLimit = Math.min(emails.length, 15);
+  for (let i = 0; i < displayLimit; i++) {
+    const email = emails[i];
     const unread = email.unread_count > 0 ? ` (📩 ${email.unread_count} baru)` : "";
     const owner = isAdminView && email.telegram_username ? ` [@${email.telegram_username}]` : "";
     response += `📧 <code>${email.email_address}</code>${unread}${owner}
    📬 ${email.message_count} pesan
 
 `;
+  }
+  
+  if (emails.length > displayLimit) {
+    response += `\n... dan ${emails.length - displayLimit} email lainnya\n`;
   }
 
   response += `━━━━━━━━━━━━━━━
