@@ -1216,7 +1216,85 @@ Or quick approve:`,
       const domainId = parseInt(params[0]);
       const domain = await getDomainById(env.DB, domainId);
       if (!domain) return { text: "❌ Domain tidak ditemukan.", keyboard: buildBackButton("menu:admin", lang) };
-      return await handleApproveDomain(env, telegramUserId, `${domain.domain} Approved by admin`);
+      
+      // Get admin user ID
+      const adminUserId = await getUserId(env.DB, telegramUserId);
+      if (!adminUserId) return { text: "❌ Admin user tidak ditemukan." };
+      
+      // Approve domain
+      try {
+        await env.DB.prepare(
+          `UPDATE custom_domains 
+           SET status = 'approved', 
+               reviewed_by = ?,
+               reviewed_at = datetime('now'),
+               admin_note = ?
+           WHERE id = ?`
+        ).bind(adminUserId, 'Approved by admin', domainId).run();
+        
+        // Notify user
+        const userResult = await env.DB.prepare(
+          'SELECT telegram_user_id FROM users WHERE id = ?'
+        ).bind(domain.user_id).first<{ telegram_user_id: string }>();
+
+        if (userResult) {
+          const userNotification = `🎉 <b>Domain Request APPROVED!</b>
+
+📧 <b>Domain:</b> <code>${domain.domain}</code>
+✅ <b>Approved by:</b> @kakatiri
+📝 <b>Note:</b> Approved by admin
+
+━━━━━━━━━━━━━━━
+<b>Next Steps:</b>
+
+1️⃣ Setup DNS records:
+   <code>/setupdomain ${domain.domain}</code>
+
+2️⃣ Wait 10-30 minutes for DNS propagation
+
+3️⃣ Request verification:
+   <code>/verifydomain ${domain.domain}</code>
+
+4️⃣ Wait for admin to activate
+
+5️⃣ Start using your custom domain!
+
+💬 Need help? Contact @kakatiri`;
+
+          await sendTelegramMessage(
+            env.TELEGRAM_BOT_TOKEN,
+            parseInt(userResult.telegram_user_id),
+            userNotification,
+            {
+              inline_keyboard: [
+                [{ text: "🔧 Setup DNS", callback_data: `domain_setup:${domainId}` }],
+                [{ text: "💬 Contact Admin", url: "https://t.me/kakatiri" }]
+              ]
+            }
+          );
+        }
+        
+        return {
+          text: `✅ <b>Domain Approved!</b>
+
+📧 Domain: <code>${domain.domain}</code>
+👤 User notified
+
+User will setup DNS and request verification.`,
+          keyboard: {
+            inline_keyboard: [
+              [{ text: "📬 Pending Requests", callback_data: "admin:domain_requests" }],
+              [{ text: "🔙 Admin Menu", callback_data: "menu:admin" }]
+            ]
+          }
+        };
+      } catch (error) {
+        console.error("Error approving domain:", error);
+        return {
+          text: `❌ Error approving domain: ${error instanceof Error ? error.message : 'Unknown'}`,
+          keyboard: buildBackButton("menu:admin", lang)
+        };
+      }
     }
     
     case "domain_reject": {
