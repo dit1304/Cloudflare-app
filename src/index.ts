@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import * as OTPAuth from "otpauth";
+import { extractEmailBody, parseFromHeader, stripHtml } from "./utils/email-parser";
+import { log, logError } from "./utils/helpers";
 
 type Bindings = {
   DB: D1Database;
@@ -7,6 +9,7 @@ type Bindings = {
   TEMP_EMAIL_DOMAIN: string;
   ADMIN_USER_ID: string;
   FALLBACK_EMAIL: string;
+  WORKER_URL?: string;
 };
 
 type Language = "id" | "en";
@@ -432,20 +435,7 @@ app.post("/webhooks/telegram", async (c) => {
 });
 
 // ============ EMAIL HANDLER (from Cloudflare Email Routing) ============
-function parseFromHeader(fromHeader: string, rawFrom: string): string {
-  if (fromHeader) {
-    const match = fromHeader.match(/^["']?([^"'<]+)["']?\s*<[^>]+>$/);
-    if (match && match[1]) {
-      const displayName = match[1].trim();
-      return `${displayName}`;
-    }
-  }
-  if (rawFrom.includes('=') && rawFrom.includes('bounces')) {
-    const domain = rawFrom.split('@')[1];
-    return domain || rawFrom;
-  }
-  return rawFrom;
-}
+// Note: parseFromHeader is now imported from utils/email-parser
 
 async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
   console.log(`📧 Email received: ${message.from} -> ${message.to}`);
@@ -2691,222 +2681,14 @@ async function editTelegramMessage(botToken: string, chatId: number, messageId: 
   }
 }
 
-function decodeQuotedPrintable(str: string): string {
-  return str
-    .replace(/=\r?\n/g, '')
-    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-}
-
-function decodeBase64(str: string): string {
-  try {
-    const clean = str.replace(/[\r\n\s]/g, '');
-    return atob(clean);
-  } catch {
-    return str;
-  }
-}
-
-function extractMimePart(rawEmail: string, contentType: string): string | null {
-  const regex = new RegExp(
-    `Content-Type:\\s*${contentType}[^\\r\\n]*[\\r\\n]+` +
-    `(?:Content-Transfer-Encoding:\\s*([^\\r\\n]+)[\\r\\n]+)?` +
-    `(?:[^\\r\\n]+:[^\\r\\n]*[\\r\\n]+)*` +
-    `[\\r\\n]+` +
-    `([\\s\\S]*?)` +
-    `(?=--[\\w-]+|$)`,
-    'i'
-  );
-  
-  const match = rawEmail.match(regex);
-  if (!match) return null;
-  
-  const encoding = (match[1] || '').toLowerCase().trim();
-  let content = match[2] || '';
-  
-  content = content.replace(/--[\w-]+--?\s*$/g, '').trim();
-  
-  if (encoding === 'base64') {
-    content = decodeBase64(content);
-  } else if (encoding === 'quoted-printable') {
-    content = decodeQuotedPrintable(content);
-  }
-  
-  return content;
-}
-
-function isBase64(str: string): boolean {
-  const clean = str.replace(/[\r\n\s]/g, '');
-  if (clean.length < 20) return false;
-  if (!/^[A-Za-z0-9+/]+=*$/.test(clean)) return false;
-  try {
-    const decoded = atob(clean);
-    return /[a-zA-Z<>]/.test(decoded);
-  } catch {
-    return false;
-  }
-}
-
-function extractLinks(rawEmail: string): string[] {
-  const links: string[] = [];
-  const seen = new Set<string>();
-  
-  let content = rawEmail;
-  
-  const htmlContent = extractMimePart(rawEmail, 'text/html');
-  if (htmlContent) {
-    content = htmlContent;
-  }
-  
-  const plainText = extractMimePart(rawEmail, 'text/plain');
-  if (plainText) {
-    content += '\n' + plainText;
-  }
-  
-  const importantKeywords = [
-    'verify', 'confirm', 'activate', 'validation', 'reset',
-    'verifikasi', 'konfirmasi', 'aktifasi',
-    'token', 'code', 'otp', 'password', 'login', 'auth',
-    'click', 'klik', 'button', 'action'
-  ];
-  
-  const hrefRegex = /href=["']([^"']+)["']/gi;
-  let match;
-  while ((match = hrefRegex.exec(content)) !== null) {
-    const url = match[1];
-    if (url && url.startsWith('http') && !seen.has(url)) {
-      const urlLower = url.toLowerCase();
-      const isImportant = importantKeywords.some(kw => urlLower.includes(kw));
-      
-      const skipPatterns = [
-        'unsubscribe', 'mailto:', 'facebook.com', 'twitter.com', 'linkedin.com',
-        'instagram.com', 'youtube.com', 'privacy', 'terms', 'help', 'support',
-        'logo', 'image', '.png', '.jpg', '.gif', 'cdn.', 'static.'
-      ];
-      const shouldSkip = skipPatterns.some(p => urlLower.includes(p));
-      
-      if (isImportant && !shouldSkip) {
-        seen.add(url);
-        links.push(url);
-      }
-    }
-  }
-  
-  if (links.length === 0) {
-    const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
-    while ((match = urlRegex.exec(content)) !== null) {
-      const url = match[0].replace(/[.,;:!?)>\]]+$/, '');
-      if (url.length > 20 && !seen.has(url)) {
-        const urlLower = url.toLowerCase();
-        const skipPatterns = [
-          'unsubscribe', 'facebook.com', 'twitter.com', 'linkedin.com',
-          '.png', '.jpg', '.gif', 'cdn.', 'static.', 'logo', 'image'
-        ];
-        const shouldSkip = skipPatterns.some(p => urlLower.includes(p));
-        
-        if (!shouldSkip) {
-          seen.add(url);
-          links.push(url);
-          if (links.length >= 3) break;
-        }
-      }
-    }
-  }
-  
-  return links;
-}
-
-function extractEmailBody(rawEmail: string): string {
-  const plainText = extractMimePart(rawEmail, 'text/plain');
-  if (plainText && plainText.trim().length > 20) {
-    const trimmed = plainText.trim();
-    if (isBase64(trimmed)) {
-      const decoded = decodeBase64(trimmed);
-      return stripHtml(decoded).substring(0, 4000);
-    }
-    return trimmed.substring(0, 4000);
-  }
-  
-  const htmlContent = extractMimePart(rawEmail, 'text/html');
-  if (htmlContent && htmlContent.trim().length > 0) {
-    let content = htmlContent.trim();
-    if (isBase64(content)) {
-      content = decodeBase64(content);
-    }
-    const stripped = stripHtml(content);
-    if (stripped.trim().length > 20) {
-      return stripped.trim().substring(0, 4000);
-    }
-  }
-  
-  let body = rawEmail.replace(/^[\s\S]*?\r?\n\r?\n/, '');
-  
-  body = body
-    .replace(/--[\w-]+[^\n]*/g, '')
-    .replace(/Content-Type:[^\n]*/gi, '')
-    .replace(/Content-Transfer-Encoding:[^\n]*/gi, '')
-    .replace(/Content-Disposition:[^\n]*/gi, '')
-    .replace(/charset="?[^"\s]*"?/gi, '')
-    .trim();
-  
-  if (isBase64(body)) {
-    body = decodeBase64(body);
-  }
-  
-  const base64Match = body.match(/([A-Za-z0-9+/]{50,}=*)/);
-  if (base64Match) {
-    try {
-      const decoded = decodeBase64(base64Match[1]);
-      if (decoded.includes('<') || decoded.includes('Dear') || decoded.includes('Hello')) {
-        body = decoded;
-      }
-    } catch {}
-  }
-  
-  return stripHtml(body).substring(0, 4000);
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<!DOCTYPE[^>]*>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<\/tr>/gi, '\n')
-    .replace(/<\/li>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-    .replace(/\u00AD/g, '')
-    .replace(/Â­/g, '')
-    .replace(/&shy;/g, '')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    .replace(/[\u2028\u2029]/g, '\n')
-    .replace(/[^\x20-\x7E\n\r\u00A0-\u00FF\u0100-\u017F]/g, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/^ +| +$/gm, '')
-    .trim()
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/=\r?\n/g, '')
-    .replace(/=20/g, ' ')
-    .replace(/=3D/g, '=')
-    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// ============ EMAIL PARSING FUNCTIONS ============
+// All email parsing functions are now imported from utils/email-parser
+// The new parser provides:
+// - Better charset detection (UTF-8, ISO-8859-1, Windows-1252, etc.)
+// - RFC 2047 encoded header support
+// - Improved Base64 and Quoted-Printable decoding
+// - Better handling of malformed emails
+// - More accurate MIME part extraction
 
 // ============ EXPORTS ============
 export default {
