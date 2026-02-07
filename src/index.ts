@@ -427,6 +427,16 @@ app.post("/webhooks/telegram", async (c) => {
       }
     } catch (error) {
       console.error("Error processing callback:", error);
+      // Send error message to user
+      try {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          chatId,
+          `❌ Maaf, terjadi kesalahan.\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}\n\nSilakan coba lagi atau contact @kakatiri`
+        );
+      } catch (e) {
+        console.error("Failed to send error message:", e);
+      }
     }
     return c.text("OK", 200);
   }
@@ -1204,7 +1214,9 @@ Or quick approve:`,
     case "domain_quick_approve": {
       if (!isAdmin) return "";
       const domainId = parseInt(params[0]);
-      return await handleApproveDomain(env, telegramUserId, domainId.toString() + " Approved");
+      const domain = await getDomainById(env.DB, domainId);
+      if (!domain) return { text: "❌ Domain tidak ditemukan.", keyboard: buildBackButton("menu:admin", lang) };
+      return await handleApproveDomain(env, telegramUserId, `${domain.domain} Approved by admin`);
     }
     
     case "domain_reject": {
