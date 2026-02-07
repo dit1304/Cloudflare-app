@@ -652,7 +652,7 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
 
     case "/list":
     case "/e":
-      return await handleList(env, telegramUserId);
+      return await handleList(env, telegramUserId, 1);
 
     case "/delete":
     case "/d":
@@ -799,7 +799,7 @@ async function processCallback(
           };
         
         case "list": {
-          const result = await handleList(env, telegramUserId);
+          const result = await handleList(env, telegramUserId, 1);
           if (typeof result === 'string') {
             return { text: result, keyboard: buildBackButton("menu:email", lang) };
           }
@@ -975,6 +975,11 @@ async function processCallback(
         };
       }
       return "";
+    }
+    
+    case "list_page": {
+      const page = parseInt(params[0]) || 1;
+      return await handleList(env, telegramUserId, page);
     }
     
     default:
@@ -2354,21 +2359,19 @@ ${body}`,
   };
 }
 
-async function handleList(env: Bindings, telegramUserId: string): Promise<CommandResponse> {
+async function handleList(env: Bindings, telegramUserId: string, page: number = 1): Promise<CommandResponse> {
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
   const lang = getLang(await getUserLanguage(env.DB, telegramUserId));
+  
+  const perPage = 15; // Emails per page
+  const offset = (page - 1) * perPage;
 
-  let result;
+  // Get total count first
+  let totalResult;
   if (isAdmin) {
-    // Admin: Limit to 20 emails to avoid Telegram rate limit
-    result = await env.DB.prepare(
-      `SELECT e.email_address, e.local_part, e.created_at, u.telegram_username,
-       (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
-       (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
-       FROM emails e 
-       JOIN users u ON e.user_id = u.id
-       WHERE e.is_active = 1 ORDER BY e.created_at DESC LIMIT 20`
-    ).all();
+    totalResult = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM emails e WHERE e.is_active = 1`
+    ).first<{ count: number }>();
   } else {
     const userId = await getUserId(env.DB, telegramUserId);
     if (!userId) {
@@ -2377,13 +2380,38 @@ async function handleList(env: Bindings, telegramUserId: string): Promise<Comman
         keyboard: buildBackButton("menu:main", lang)
       };
     }
+    totalResult = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM emails e WHERE e.user_id = ? AND e.is_active = 1`
+    ).bind(userId).first<{ count: number }>();
+  }
+  
+  const totalEmails = totalResult?.count || 0;
+  const totalPages = Math.ceil(totalEmails / perPage);
+  
+  // Validate page number
+  if (page < 1) page = 1;
+  if (page > totalPages && totalPages > 0) page = totalPages;
+
+  // Get paginated results
+  let result;
+  if (isAdmin) {
+    result = await env.DB.prepare(
+      `SELECT e.email_address, e.local_part, e.created_at, u.telegram_username,
+       (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
+       (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
+       FROM emails e 
+       JOIN users u ON e.user_id = u.id
+       WHERE e.is_active = 1 ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
+    ).bind(perPage, offset).all();
+  } else {
+    const userId = await getUserId(env.DB, telegramUserId);
     result = await env.DB.prepare(
       `SELECT e.email_address, e.local_part, e.created_at, 
        (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id) as message_count,
        (SELECT COUNT(*) FROM inbox i WHERE i.email_id = e.id AND i.is_read = 0) as unread_count
-       FROM emails e WHERE e.user_id = ? AND e.is_active = 1 ORDER BY e.created_at DESC`
+       FROM emails e WHERE e.user_id = ? AND e.is_active = 1 ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
     )
-      .bind(userId)
+      .bind(userId, perPage, offset)
       .all();
   }
 
@@ -2407,15 +2435,16 @@ Buat email baru dengan:
   }
 
   const emails = result.results as any[];
-  const totalCount = emails.length;
   
   let response = isAdminView 
     ? `📋 <b>Semua Email (Admin View)</b>
 
-📊 Showing ${totalCount} emails (max 20 per page)
+📊 Total: ${totalEmails} emails | Halaman ${page}/${totalPages}
 
 `
     : `📋 <b>Daftar Email Kamu</b>
+
+📊 Total: ${totalEmails} emails${totalPages > 1 ? ` | Halaman ${page}/${totalPages}` : ''}
 
 `;
 
@@ -2430,10 +2459,8 @@ Buat email baru dengan:
     keyboard.push(row);
   }
 
-  // Display email list (limit to 15 to avoid message length issues)
-  const displayLimit = Math.min(emails.length, 15);
-  for (let i = 0; i < displayLimit; i++) {
-    const email = emails[i];
+  // Display all emails on current page
+  for (const email of emails) {
     const unread = email.unread_count > 0 ? ` (📩 ${email.unread_count} baru)` : "";
     const owner = isAdminView && email.telegram_username ? ` [@${email.telegram_username}]` : "";
     response += `📧 <code>${email.email_address}</code>${unread}${owner}
@@ -2441,13 +2468,36 @@ Buat email baru dengan:
 
 `;
   }
-  
-  if (emails.length > displayLimit) {
-    response += `\n... dan ${emails.length - displayLimit} email lainnya\n`;
-  }
 
   response += `━━━━━━━━━━━━━━━
 👆 Tap tombol untuk cek inbox`;
+
+  // Add pagination buttons if needed
+  if (totalPages > 1) {
+    const paginationRow: any[] = [];
+    
+    if (page > 1) {
+      paginationRow.push({ 
+        text: "⬅️ Previous", 
+        callback_data: `list_page:${page - 1}` 
+      });
+    }
+    
+    // Page indicator (non-clickable)
+    paginationRow.push({ 
+      text: `📄 ${page}/${totalPages}`, 
+      callback_data: `list_page:${page}` 
+    });
+    
+    if (page < totalPages) {
+      paginationRow.push({ 
+        text: "Next ➡️", 
+        callback_data: `list_page:${page + 1}` 
+      });
+    }
+    
+    keyboard.push(paginationRow);
+  }
 
   keyboard.push([{ text: "➕ Buat Email Baru", callback_data: "action:create_prompt" }]);
   keyboard.push([{ text: t(lang, "back_to_menu"), callback_data: "menu:email" }]);
