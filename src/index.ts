@@ -609,18 +609,6 @@ Please select your preferred language.`,
       };
     }
     
-    case "/menu": {
-      // Show main menu with inline buttons
-      return {
-        text: `${t(lang, "welcome_title")}
-
-${t(lang, "welcome_desc")}
-
-${t(lang, "menu_desc")}`,
-        keyboard: buildMainMenuKeyboard(lang, isAdmin)
-      };
-    }
-    
     case "/menu":
       return {
         text: `${t(lang, "menu_title")}
