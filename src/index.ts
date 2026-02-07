@@ -2,6 +2,24 @@ import { Hono } from "hono";
 import * as OTPAuth from "otpauth";
 import { extractEmailBody, parseFromHeader, stripHtml } from "./utils/email-parser";
 import { log, logError } from "./utils/helpers";
+import {
+  handleRequestDomain,
+  handleMyDomains,
+  handleSetupDomain,
+  handleVerifyDomain,
+  handleCancelDomain,
+  handleDomainStats
+} from "./handlers/domain-handlers";
+import {
+  handleDomainRequests,
+  handleApproveDomain,
+  handleRejectDomain,
+  handleActivateDomain,
+  handleListDomains,
+  handleSuspendDomain,
+  handleDomainInfo
+} from "./handlers/admin-domain-handlers";
+import { getDomainById } from "./services/custom-domains";
 
 type Bindings = {
   DB: D1Database;
@@ -292,11 +310,12 @@ function build2FAMenuKeyboard(lang: Language): any {
 function buildAccountMenuKeyboard(lang: Language): any {
   const keyboard = [
     [
-      { text: t(lang, "btn_stats"), callback_data: "action:mystats" },
-      { text: t(lang, "btn_settings"), callback_data: "action:settings" }
+      { text: "📊 Statistik", callback_data: "action:mystats" },
+      { text: "⚙️ Pengaturan", callback_data: "action:settings" }
     ],
     [
-      { text: t(lang, "btn_language"), callback_data: "action:lang" }
+      { text: "🌐 Bahasa", callback_data: "action:lang" },
+      { text: "🌐 My Domains", callback_data: "action:mydomains" }
     ],
     [
       { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
@@ -309,16 +328,20 @@ function buildAccountMenuKeyboard(lang: Language): any {
 function buildAdminMenuKeyboard(lang: Language): any {
   const keyboard = [
     [
-      { text: t(lang, "btn_bot_stats"), callback_data: "admin:stats" },
-      { text: t(lang, "btn_user_list"), callback_data: "admin:users" }
+      { text: "📊 Statistik Bot", callback_data: "admin:stats" },
+      { text: "👥 Daftar Users", callback_data: "admin:users" }
     ],
     [
-      { text: t(lang, "btn_premium"), callback_data: "admin:premium" },
-      { text: t(lang, "btn_blacklist"), callback_data: "admin:blacklist" }
+      { text: "⭐ Premium", callback_data: "admin:premium" },
+      { text: "🚫 Blacklist", callback_data: "admin:blacklist" }
     ],
     [
-      { text: t(lang, "btn_cleanup"), callback_data: "admin:cleanup" },
-      { text: t(lang, "btn_broadcast"), callback_data: "admin:broadcast_prompt" }
+      { text: "🌐 Custom Domains", callback_data: "admin:domain_requests" },
+      { text: "📋 All Domains", callback_data: "admin:list_domains" }
+    ],
+    [
+      { text: "🧹 Cleanup", callback_data: "admin:cleanup" },
+      { text: "📢 Broadcast", callback_data: "admin:broadcast_prompt" }
     ],
     [
       { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
@@ -770,6 +793,57 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
     case "/domains":
       return handleDomains(env);
 
+    case "/requestdomain":
+      return await handleRequestDomain(env, telegramUserId, arg);
+
+    case "/mydomains":
+      return await handleMyDomains(env, telegramUserId);
+
+    case "/setupdomain":
+      return await handleSetupDomain(env, telegramUserId, arg);
+
+    case "/verifydomain":
+      return await handleVerifyDomain(env, telegramUserId, arg);
+
+    case "/canceldomain":
+      return await handleCancelDomain(env, telegramUserId, arg);
+
+    case "/domainrequests":
+      if (!isAdmin) {
+        return t(lang, "admin_only");
+      }
+      return await handleDomainRequests(env, telegramUserId);
+
+    case "/approvedomain":
+      if (!isAdmin) {
+        return t(lang, "admin_only");
+      }
+      return await handleApproveDomain(env, telegramUserId, arg);
+
+    case "/rejectdomain":
+      if (!isAdmin) {
+        return t(lang, "admin_only");
+      }
+      return await handleRejectDomain(env, telegramUserId, arg);
+
+    case "/activatedomain":
+      if (!isAdmin) {
+        return t(lang, "admin_only");
+      }
+      return await handleActivateDomain(env, telegramUserId, arg);
+
+    case "/suspenddomain":
+      if (!isAdmin) {
+        return t(lang, "admin_only");
+      }
+      return await handleSuspendDomain(env, telegramUserId, arg);
+
+    case "/listdomains":
+      if (!isAdmin) {
+        return t(lang, "admin_only");
+      }
+      return await handleListDomains(env, telegramUserId, arg || 'all');
+
     default:
       // Show menu for unrecognized commands
       return {
@@ -971,6 +1045,32 @@ Made with ❤️ by @kakatiri`,
               ]
             }
           };
+        
+        // Custom Domain Actions
+        case "mydomains":
+          return await handleMyDomains(env, telegramUserId);
+        
+        case "request_domain_prompt":
+          return {
+            text: `📧 <b>Request Custom Domain</b>
+
+Format: <code>/requestdomain yourdomain.com [note]</code>
+
+Example:
+<code>/requestdomain mybusiness.com</code>
+<code>/requestdomain myshop.com For my online store</code>
+
+⭐ Custom domain is a Premium feature.
+
+💡 Process:
+1. Submit request
+2. Admin reviews & approves
+3. Setup DNS records
+4. Request verification
+5. Admin activates domain
+6. Create emails with your domain!`,
+            keyboard: buildBackButton("menu:account", lang)
+          };
       }
       return "";
     
@@ -1009,6 +1109,19 @@ Made with ❤️ by @kakatiri`,
             text: t(lang, "prompt_broadcast"),
             keyboard: buildBackButton("menu:admin", lang)
           };
+        
+        case "domain_requests":
+          return await handleDomainRequests(env, telegramUserId);
+        
+        case "list_domains":
+        case "list_domains:all":
+          return await handleListDomains(env, telegramUserId, 'all');
+        
+        case "list_domains:pending":
+          return await handleListDomains(env, telegramUserId, 'pending');
+        
+        case "list_domains:active":
+          return await handleListDomains(env, telegramUserId, 'active');
       }
       return "";
     
@@ -1060,6 +1173,102 @@ Made with ❤️ by @kakatiri`,
     case "list_page": {
       const page = parseInt(params[0]) || 1;
       return await handleList(env, telegramUserId, page);
+    }
+    
+    // ========== CUSTOM DOMAIN CALLBACKS ==========
+    case "domain_approve": {
+      if (!isAdmin) return "";
+      const domainId = parseInt(params[0]);
+      // Show approval confirmation prompt
+      const domain = await getDomainById(env.DB, domainId);
+      if (!domain) return "";
+      
+      return {
+        text: `✅ <b>Approve Domain Request?</b>
+
+📧 Domain: <code>${domain.domain}</code>
+
+Send approval note (optional):
+<code>/approvedomain ${domain.domain} Approved for business use</code>
+
+Or quick approve:`,
+        keyboard: {
+          inline_keyboard: [
+            [{ text: "✅ Quick Approve", callback_data: `domain_quick_approve:${domainId}` }],
+            [{ text: "🔙 Back", callback_data: "admin:domain_requests" }]
+          ]
+        }
+      };
+    }
+    
+    case "domain_quick_approve": {
+      if (!isAdmin) return "";
+      const domainId = parseInt(params[0]);
+      return await handleApproveDomain(env, telegramUserId, domainId.toString() + " Approved");
+    }
+    
+    case "domain_reject": {
+      if (!isAdmin) return "";
+      const domainId = parseInt(params[0]);
+      const domain = await getDomainById(env.DB, domainId);
+      if (!domain) return "";
+      
+      return {
+        text: `❌ <b>Reject Domain Request?</b>
+
+📧 Domain: <code>${domain.domain}</code>
+
+Please provide rejection reason:
+<code>/rejectdomain ${domain.domain} [reason]</code>
+
+Example:
+<code>/rejectdomain ${domain.domain} Domain already in use</code>`,
+        keyboard: {
+          inline_keyboard: [
+            [{ text: "🔙 Back", callback_data: "admin:domain_requests" }]
+          ]
+        }
+      };
+    }
+    
+    case "domain_info": {
+      if (!isAdmin) return "";
+      const domainId = parseInt(params[0]);
+      return await handleDomainInfo(env, telegramUserId, domainId);
+    }
+    
+    case "domain_setup": {
+      const domainId = parseInt(params[0]);
+      const domain = await getDomainById(env.DB, domainId);
+      if (!domain) return "";
+      return await handleSetupDomain(env, telegramUserId, domain.domain);
+    }
+    
+    case "domain_verify_req": {
+      const domainId = parseInt(params[0]);
+      const domain = await getDomainById(env.DB, domainId);
+      if (!domain) return "";
+      return await handleVerifyDomain(env, telegramUserId, domain.domain);
+    }
+    
+    case "domain_activate": {
+      if (!isAdmin) return "";
+      const domainId = parseInt(params[0]);
+      const domain = await getDomainById(env.DB, domainId);
+      if (!domain) return "";
+      return await handleActivateDomain(env, telegramUserId, domain.domain);
+    }
+    
+    case "domain_stats": {
+      const domainId = parseInt(params[0]);
+      return await handleDomainStats(env, telegramUserId, domainId);
+    }
+    
+    case "domain_cancel": {
+      const domainId = parseInt(params[0]);
+      const domain = await getDomainById(env.DB, domainId);
+      if (!domain) return "";
+      return await handleCancelDomain(env, telegramUserId, domain.domain);
     }
     
     default:
@@ -2136,20 +2345,44 @@ Contoh: ${example}
   let localPart: string;
   let selectedDomain: string;
   
+  let customDomainId: number | null = null;
+  let usesCustomDomain = false;
+  
   if (name.includes("@")) {
     const parts = name.split("@");
     localPart = parts[0].toLowerCase().replace(/[^a-z0-9]/g, "");
     const requestedDomain = parts[1]?.toLowerCase().trim();
     
+    // Check if it's a bot domain
     if (requestedDomain && domains.map(d => d.toLowerCase()).includes(requestedDomain)) {
       selectedDomain = requestedDomain;
     } else if (requestedDomain) {
-      return `⚠️ Domain <b>${requestedDomain}</b> tidak tersedia.
+      // Check if it's a custom domain
+      const userId = await getUserId(env.DB, telegramUserId);
+      if (userId) {
+        const customDomain = await env.DB.prepare(
+          "SELECT id FROM custom_domains WHERE domain = ? AND user_id = ? AND status = 'active'"
+        ).bind(requestedDomain, userId).first<{ id: number }>();
+        
+        if (customDomain) {
+          selectedDomain = requestedDomain;
+          customDomainId = customDomain.id;
+          usesCustomDomain = true;
+        } else {
+          return {
+            text: `⚠️ Domain <b>${requestedDomain}</b> tidak tersedia.
 
-📋 Domain tersedia:
+📋 Domain bot tersedia:
 ${domains.map(d => `• <code>${d}</code>`).join("\n")}
 
-Contoh: <code>/create ${localPart}@${defaultDomain}</code>`;
+🌐 Custom domain? Request dengan:
+<code>/requestdomain ${requestedDomain}</code>`,
+            keyboard: buildBackButton("menu:email", lang)
+          };
+        }
+      } else {
+        selectedDomain = defaultDomain;
+      }
     } else {
       selectedDomain = defaultDomain;
     }
@@ -2167,17 +2400,45 @@ Contoh: <code>/create ${localPart}@${defaultDomain}</code>`;
   }
 
   // If multiple domains and no domain specified, show keyboard
-  if (domains.length > 1 && !name.includes("@")) {
-    const keyboard = domains.map(domain => [{
-      text: `📧 ${localPart}@${domain}`,
-      callback_data: `create:${localPart}:${domain}`
-    }]);
-    keyboard.push([{ text: t(lang, "back_to_menu"), callback_data: "menu:email" }]);
+  if (!name.includes("@")) {
+    const userId = await getUserId(env.DB, telegramUserId);
     
-    return {
-      text: `📧 <b>Pilih domain untuk: ${localPart}</b>\n\n👇 Tap untuk memilih:`,
-      keyboard: { inline_keyboard: keyboard }
-    };
+    // Get user's active custom domains
+    let customDomains: any[] = [];
+    if (userId) {
+      const customDomainsResult = await env.DB.prepare(
+        "SELECT id, domain FROM custom_domains WHERE user_id = ? AND status = 'active'"
+      ).bind(userId).all();
+      customDomains = customDomainsResult.results || [];
+    }
+    
+    // Build keyboard with bot domains + custom domains
+    if (domains.length > 1 || customDomains.length > 0) {
+      const keyboard = [];
+      
+      // Add bot domains
+      for (const domain of domains) {
+        keyboard.push([{
+          text: `📧 ${localPart}@${domain}`,
+          callback_data: `create:${localPart}:${domain}`
+        }]);
+      }
+      
+      // Add custom domains
+      for (const cd of customDomains) {
+        keyboard.push([{
+          text: `🌐 ${localPart}@${cd.domain} (Custom)`,
+          callback_data: `create:${localPart}:${cd.domain}`
+        }]);
+      }
+      
+      keyboard.push([{ text: t(lang, "back_to_menu"), callback_data: "menu:email" }]);
+      
+      return {
+        text: `📧 <b>Pilih domain untuk: ${localPart}</b>\n\n👇 Tap untuk memilih:`,
+        keyboard: { inline_keyboard: keyboard }
+      };
+    }
   }
 
   const emailAddress = `${localPart}@${selectedDomain}`;
@@ -2211,14 +2472,18 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> email.
     }
   }
 
-  await env.DB.prepare("INSERT INTO emails (user_id, email_address, local_part) VALUES (?, ?, ?)")
-    .bind(userId, emailAddress, localPart)
+  await env.DB.prepare(
+    "INSERT INTO emails (user_id, email_address, local_part, domain_id, uses_custom_domain) VALUES (?, ?, ?, ?, ?)"
+  )
+    .bind(userId, emailAddress, localPart, customDomainId, usesCustomDomain ? 1 : 0)
     .run();
 
+  const customDomainBadge = usesCustomDomain ? '\n🌐 <b>Custom Domain</b>' : '';
+  
   return {
     text: `✅ <b>Email berhasil dibuat!</b>
 
-📧 <code>${emailAddress}</code>
+📧 <code>${emailAddress}</code>${customDomainBadge}
 
 Gunakan alamat ini untuk menerima email. Ketika ada email masuk, kamu akan mendapat notifikasi di sini.`,
     keyboard: {
