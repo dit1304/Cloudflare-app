@@ -334,6 +334,10 @@ Monitor via Cloudflare Dashboard:
 
 MIT License - see LICENSE file
 
+## 👨‍💻 Author
+
+**Created & Maintained by:** [@kakatiri](https://t.me/kakatiri)
+
 ## 🙏 Credits
 
 - [Hono.js](https://hono.dev/) - Web framework
@@ -342,9 +346,9 @@ MIT License - see LICENSE file
 
 ## 📞 Support
 
+- 👨‍💻 Developer: [@kakatiri](https://t.me/kakatiri) on Telegram
 - 🐛 Issues: GitHub Issues
 - 💬 Discussions: GitHub Discussions
-- 📧 Email: your-email@domain.com
 
 ## 🗺️ Roadmap
 

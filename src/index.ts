@@ -234,12 +234,15 @@ function buildMainMenuKeyboard(lang: Language, isAdmin: boolean): any {
     [
       { text: t(lang, "menu_account"), callback_data: "menu:account" },
       { text: t(lang, "menu_help"), callback_data: "menu:help" }
+    ],
+    [
+      { text: "ℹ️ About / Credit", callback_data: "menu:credit" }
     ]
   ];
   
   if (isAdmin) {
     keyboard.push([
-      { text: t(lang, "btn_admin"), callback_data: "menu:admin" }
+      { text: "🔧 Admin", callback_data: "menu:admin" }
     ]);
   }
   
@@ -620,6 +623,45 @@ ${t(lang, "menu_desc")}`,
     case "/help":
       return await getHelpMessage(env.DB, getDomains(env), isAdmin, telegramUserId);
     
+    case "/credit":
+    case "/author":
+    case "/about":
+      return {
+        text: `👨‍💻 <b>Temp Email Bot</b>
+        
+🔧 <b>Author & Developer:</b>
+└ @kakatiri
+
+📌 <b>Version:</b> 2.1.0
+🚀 <b>Platform:</b> Cloudflare Workers
+🛠️ <b>Tech Stack:</b> TypeScript, Hono, D1 Database
+
+✨ <b>Features:</b>
+• Temporary Email Management
+• 2FA/OTP Generator
+• Multi-language Support (ID/EN)
+• Premium System
+• Real-time Email Notifications
+
+💬 <b>Contact Admin:</b>
+└ @kakatiri
+
+🙏 <b>Terima kasih telah menggunakan bot ini!</b>
+
+━━━━━━━━━━━━━━━
+Made with ❤️ by @kakatiri`,
+        keyboard: {
+          inline_keyboard: [
+            [
+              { text: "💬 Contact Admin", url: "https://t.me/kakatiri" }
+            ],
+            [
+              { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
+            ]
+          ]
+        }
+      };
+    
     case "/lang":
     case "/language": {
       return {
@@ -779,6 +821,44 @@ async function processCallback(
         
         case "help":
           return await getHelpMessage(env.DB, getDomains(env), isAdmin, telegramUserId);
+        
+        case "credit":
+        case "about":
+          return {
+            text: `👨‍💻 <b>Temp Email Bot</b>
+        
+🔧 <b>Author & Developer:</b>
+└ @kakatiri
+
+📌 <b>Version:</b> 2.1.0
+🚀 <b>Platform:</b> Cloudflare Workers
+🛠️ <b>Tech Stack:</b> TypeScript, Hono, D1 Database
+
+✨ <b>Features:</b>
+• Temporary Email Management
+• 2FA/OTP Generator
+• Multi-language Support (ID/EN)
+• Premium System
+• Real-time Email Notifications
+
+💬 <b>Contact Admin:</b>
+└ @kakatiri
+
+🙏 <b>Terima kasih telah menggunakan bot ini!</b>
+
+━━━━━━━━━━━━━━━
+Made with ❤️ by @kakatiri`,
+            keyboard: {
+              inline_keyboard: [
+                [
+                  { text: "💬 Contact Admin", url: "https://t.me/kakatiri" }
+                ],
+                [
+                  { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
+                ]
+              ]
+            }
+          };
         
         case "admin":
           if (!isAdmin) return "";
