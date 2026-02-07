@@ -56,6 +56,24 @@ CREATE TABLE IF NOT EXISTS blacklist (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Tabel untuk custom domains
+CREATE TABLE IF NOT EXISTS custom_domains (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    domain TEXT NOT NULL UNIQUE,
+    status TEXT DEFAULT 'pending',
+    requested_at TEXT DEFAULT (datetime('now')),
+    request_note TEXT,
+    reviewed_by INTEGER,
+    reviewed_at TEXT,
+    admin_note TEXT,
+    verification_code TEXT,
+    dns_verified INTEGER DEFAULT 0,
+    verified_at TEXT,
+    activated_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- Index untuk query yang sering dipakai
 CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
 CREATE INDEX IF NOT EXISTS idx_emails_address ON emails(email_address);
@@ -63,3 +81,6 @@ CREATE INDEX IF NOT EXISTS idx_inbox_email_id ON inbox(email_id);
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_user_id);
 CREATE INDEX IF NOT EXISTS idx_totp_user_id ON totp_secrets(user_id);
 CREATE INDEX IF NOT EXISTS idx_blacklist_user_id ON blacklist(user_id);
+CREATE INDEX IF NOT EXISTS idx_custom_domains_user ON custom_domains(user_id);
+CREATE INDEX IF NOT EXISTS idx_custom_domains_status ON custom_domains(status);
+CREATE INDEX IF NOT EXISTS idx_custom_domains_domain ON custom_domains(domain);

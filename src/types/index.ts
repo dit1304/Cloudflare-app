@@ -59,6 +59,22 @@ export interface BlacklistEntry {
   created_at: string;
 }
 
+export interface CustomDomain {
+  id: number;
+  user_id: number;
+  domain: string;
+  status: 'pending' | 'approved' | 'rejected' | 'active' | 'suspended';
+  requested_at: string;
+  request_note: string | null;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+  admin_note: string | null;
+  verification_code: string | null;
+  dns_verified: number;
+  verified_at: string | null;
+  activated_at: string | null;
+}
+
 export interface CommandResponse {
   text: string;
   keyboard?: InlineKeyboard;
