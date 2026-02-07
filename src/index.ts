@@ -2380,7 +2380,10 @@ async function handleList(env: Bindings, telegramUserId: string): Promise<Comman
   } else {
     const userId = await getUserId(env.DB, telegramUserId);
     if (!userId) {
-      return `❌ Error: User tidak ditemukan.`;
+      return {
+        text: `❌ Error: User tidak ditemukan.\n\nKetik /start untuk register.`,
+        keyboard: buildBackButton("menu:main", lang)
+      };
     }
     result = await env.DB.prepare(
       `SELECT e.email_address, e.local_part, e.created_at, 
