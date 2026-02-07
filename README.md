@@ -7,11 +7,13 @@ Bot Telegram yang powerful untuk membuat email temporary dan mengelola 2FA/OTP c
 ### 📧 Email Management
 - **Buat Email Temporary**: Buat unlimited email addresses (free: max 3)
 - **Multi-Domain Support**: Pilih dari berbagai domain yang tersedia
+- **Custom Domain Support**: Use your own domain (Premium feature, admin approval required)
 - **Real-time Notifications**: Notifikasi instant saat email masuk
 - **Email Parser**: Decode otomatis untuk berbagai encoding (Base64, Quoted-Printable, RFC 2047)
 - **Search & Filter**: Cari email berdasarkan sender, subject, atau content
 - **Auto-Delete**: Atur auto-delete email otomatis (3, 7, 14, 30 hari, atau never)
 - **Catch-All**: Email yang tidak terdaftar otomatis diteruskan ke admin
+- **Pagination**: Navigate through email lists with Previous/Next buttons
 
 ### 🔐 2FA/OTP Manager
 - **Generate OTP**: Generate TOTP codes dari secret key
@@ -160,6 +162,110 @@ FREE_MAX_INBOX: 50        // Max inbox messages
 
 Edit di `src/types/index.ts` untuk customize limits.
 
+## 🌐 Custom Domain Feature (Premium)
+
+### How It Works
+
+The custom domain feature allows Premium users to use their own domain for receiving emails. The process requires admin approval for security and quality control.
+
+### Request Flow
+
+```
+1. USER: Request domain
+   ↓
+2. ADMIN: Review & Approve/Reject
+   ↓
+3. USER: Setup DNS records
+   ↓
+4. USER: Request verification
+   ↓
+5. ADMIN: Verify DNS & Activate
+   ↓
+6. USER: Create emails with custom domain!
+```
+
+### User Commands
+
+```bash
+# Request custom domain (Premium only)
+/requestdomain mybusiness.com
+/requestdomain myshop.com For my online store
+
+# View your domains
+/mydomains
+
+# Get DNS setup instructions (after approval)
+/setupdomain mybusiness.com
+
+# Request DNS verification (after setup)
+/verifydomain mybusiness.com
+
+# Cancel pending request
+/canceldomain mybusiness.com
+
+# Create email with custom domain (after activation)
+/create sales@mybusiness.com
+/create support@mybusiness.com
+```
+
+### Admin Commands
+
+```bash
+# View pending requests
+/domainrequests
+
+# Approve domain
+/approvedomain mybusiness.com Approved for business use
+
+# Reject domain
+/rejectdomain spammer.com Domain flagged as spam
+
+# Activate domain (after DNS verification)
+/activatedomain mybusiness.com
+
+# List all domains
+/listdomains all        # All domains
+/listdomains pending    # Pending only
+/listdomains active     # Active only
+
+# Suspend domain
+/suspenddomain abuse.com Abuse detected
+```
+
+### DNS Setup Required
+
+After admin approves your domain, you need to add these DNS records:
+
+**MX Record:**
+```
+Type: MX
+Name: @
+Value: route.cloudflare.net
+Priority: 10
+```
+
+**TXT Record (Verification):**
+```
+Type: TXT
+Name: _emailverify
+Value: tempbot-verify-xxxxxxxx (provided by bot)
+```
+
+### Requirements
+
+- ✅ Must be a Premium user
+- ✅ Must own the domain
+- ✅ Admin approval required
+- ✅ DNS setup required
+- ✅ Verification required
+
+### Benefits
+
+- ✅ Professional email addresses (sales@yourbusiness.com)
+- ✅ Brand identity
+- ✅ Unlimited emails with your domain
+- ✅ Full control of your domain
+
 ## 🎮 Usage
 
 ### Basic Commands
@@ -168,6 +274,7 @@ Edit di `src/types/index.ts` untuk customize limits.
 /start   - Start bot dan language selection
 /menu    - Show interactive menu
 /help    - Show all commands
+/credit  - Show bot author and info
 
 📧 Email:
 /create <name>        - Create new email
@@ -189,6 +296,13 @@ Edit di `src/types/index.ts` untuk customize limits.
 /mystats              - Your statistics
 /settings             - Settings (auto-delete)
 /lang                 - Change language
+/mydomains            - View custom domains (Premium)
+
+🌐 Custom Domain (Premium):
+/requestdomain <domain> [note] - Request custom domain
+/setupdomain <domain>          - DNS setup instructions
+/verifydomain <domain>         - Request verification
+/canceldomain <domain>         - Cancel request
 
 🔧 Admin Only:
 /stats                - Bot statistics
@@ -197,6 +311,12 @@ Edit di `src/types/index.ts` untuk customize limits.
 /blacklist            - Manage blacklist
 /cleanup              - Clean old emails
 /broadcast <message>  - Broadcast to all
+/domainrequests       - View domain requests
+/approvedomain <domain> [note]  - Approve domain
+/rejectdomain <domain> <reason> - Reject domain
+/activatedomain <domain>        - Activate domain
+/listdomains [status]           - List all domains
+/suspenddomain <domain> <reason> - Suspend domain
 ```
 
 ### Interactive Menu

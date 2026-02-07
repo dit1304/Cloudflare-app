@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] - 2024-02-07
+
+### 🌐 Major Feature: Custom Domain System
+
+#### Full Custom Domain Support with Admin Approval
+- **User Request Flow**: Users can request custom domains (Premium only)
+- **Admin Approval**: Manual review and approval by admin
+- **DNS Verification**: Complete DNS setup guide with verification
+- **Domain Activation**: Admin activates after DNS verification
+- **Email Integration**: Create emails with custom domains seamlessly
+
+#### User Commands
+- `/requestdomain <domain> [note]` - Submit domain request
+- `/mydomains` - View all custom domains with status
+- `/setupdomain <domain>` - Get DNS setup instructions
+- `/verifydomain <domain>` - Request DNS verification
+- `/canceldomain <domain>` - Cancel pending request
+
+#### Admin Commands
+- `/domainrequests` - View pending domain requests
+- `/approvedomain <domain> [note]` - Approve domain request
+- `/rejectdomain <domain> <reason>` - Reject domain request
+- `/activatedomain <domain>` - Activate domain after DNS check
+- `/listdomains [status]` - List all domains (pending/active/all)
+- `/suspenddomain <domain> <reason>` - Suspend domain
+
+#### Features
+- **Premium Feature**: Only Premium users can request custom domains
+- **Approval Workflow**: Admin must approve every request
+- **DNS Validation**: TXT record verification system
+- **Domain Statistics**: Track emails and messages per domain
+- **Status Tracking**: pending → approved → active lifecycle
+- **Notifications**: Real-time notifications to both user and admin
+- **Inline Buttons**: Interactive UI for domain management
+- **Security**: Domain validation, blacklist checking, ownership verification
+
+#### Documentation
+- **CUSTOM_DOMAIN_GUIDE.md**: Complete 400+ line setup guide
+- **DNS Instructions**: Step-by-step for Cloudflare, GoDaddy, Namecheap
+- **Troubleshooting**: Common issues and solutions
+- **Examples**: Real-world use cases
+
 ## [2.1.0] - 2024-02-07
 
 ### ✨ New Features
