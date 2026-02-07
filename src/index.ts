@@ -2472,11 +2472,15 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> email.
     }
   }
 
+  // Insert email (backward compatible - no domain_id columns needed)
   await env.DB.prepare(
-    "INSERT INTO emails (user_id, email_address, local_part, domain_id, uses_custom_domain) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO emails (user_id, email_address, local_part) VALUES (?, ?, ?)"
   )
-    .bind(userId, emailAddress, localPart, customDomainId, usesCustomDomain ? 1 : 0)
+    .bind(userId, emailAddress, localPart)
     .run();
+  
+  // If using custom domain, we can track it via the domain string itself
+  // No need for domain_id column (backward compatible)
 
   const customDomainBadge = usesCustomDomain ? '\n🌐 <b>Custom Domain</b>' : '';
   
