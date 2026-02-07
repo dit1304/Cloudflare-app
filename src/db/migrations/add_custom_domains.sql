@@ -29,16 +29,10 @@ CREATE TABLE IF NOT EXISTS custom_domains (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Add custom domain support to emails table
-ALTER TABLE emails ADD COLUMN domain_id INTEGER;
-ALTER TABLE emails ADD COLUMN uses_custom_domain INTEGER DEFAULT 0;
-
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_custom_domains_user ON custom_domains(user_id);
 CREATE INDEX IF NOT EXISTS idx_custom_domains_status ON custom_domains(status);
 CREATE INDEX IF NOT EXISTS idx_custom_domains_domain ON custom_domains(domain);
-CREATE INDEX IF NOT EXISTS idx_emails_domain ON emails(domain_id);
 
--- Add foreign key for emails to custom_domains
--- Note: SQLite doesn't support adding FK to existing table, so this is for reference only
--- ALTER TABLE emails ADD FOREIGN KEY (domain_id) REFERENCES custom_domains(id) ON DELETE SET NULL;
+-- Note: We track custom domains via domain string in email_address
+-- No need to modify emails table structure (backward compatible)

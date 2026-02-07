@@ -427,6 +427,16 @@ app.post("/webhooks/telegram", async (c) => {
       }
     } catch (error) {
       console.error("Error processing callback:", error);
+      // Send error message to user
+      try {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          chatId,
+          `❌ Maaf, terjadi kesalahan.\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}\n\nSilakan coba lagi atau contact @kakatiri`
+        );
+      } catch (e) {
+        console.error("Failed to send error message:", e);
+      }
     }
     return c.text("OK", 200);
   }
@@ -1204,7 +1214,9 @@ Or quick approve:`,
     case "domain_quick_approve": {
       if (!isAdmin) return "";
       const domainId = parseInt(params[0]);
-      return await handleApproveDomain(env, telegramUserId, domainId.toString() + " Approved");
+      const domain = await getDomainById(env.DB, domainId);
+      if (!domain) return { text: "❌ Domain tidak ditemukan.", keyboard: buildBackButton("menu:admin", lang) };
+      return await handleApproveDomain(env, telegramUserId, `${domain.domain} Approved by admin`);
     }
     
     case "domain_reject": {
@@ -2472,11 +2484,15 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> email.
     }
   }
 
+  // Insert email (backward compatible - no domain_id columns needed)
   await env.DB.prepare(
-    "INSERT INTO emails (user_id, email_address, local_part, domain_id, uses_custom_domain) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO emails (user_id, email_address, local_part) VALUES (?, ?, ?)"
   )
-    .bind(userId, emailAddress, localPart, customDomainId, usesCustomDomain ? 1 : 0)
+    .bind(userId, emailAddress, localPart)
     .run();
+  
+  // If using custom domain, we can track it via the domain string itself
+  // No need for domain_id column (backward compatible)
 
   const customDomainBadge = usesCustomDomain ? '\n🌐 <b>Custom Domain</b>' : '';
   

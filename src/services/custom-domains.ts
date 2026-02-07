@@ -120,7 +120,7 @@ export async function getPendingDomains(db: D1Database): Promise<any[]> {
 }
 
 /**
- * Get all domains with filters (for admin)
+ * Get all domains with filters (for admin) - backward compatible
  */
 export async function getAllDomains(
   db: D1Database,
@@ -128,8 +128,7 @@ export async function getAllDomains(
 ): Promise<any[]> {
   try {
     let query = `
-      SELECT cd.*, u.telegram_user_id, u.telegram_username, u.is_premium,
-      (SELECT COUNT(*) FROM emails WHERE domain_id = cd.id) as email_count
+      SELECT cd.*, u.telegram_user_id, u.telegram_username, u.is_premium
       FROM custom_domains cd
       JOIN users u ON cd.user_id = u.id
     `;
@@ -145,8 +144,18 @@ export async function getAllDomains(
     const result = params.length > 0
       ? await db.prepare(query).bind(...params).all()
       : await db.prepare(query).all();
+    
+    // Calculate email_count for each domain (backward compatible)
+    const domains = result.results || [];
+    for (const domain of domains as any[]) {
+      const emailCount = await db
+        .prepare('SELECT COUNT(*) as count FROM emails WHERE email_address LIKE ?')
+        .bind(`%@${domain.domain}`)
+        .first<{ count: number }>();
+      domain.email_count = emailCount?.count || 0;
+    }
       
-    return result.results || [];
+    return domains;
   } catch (error) {
     logError('getAllDomains error', error);
     return [];
@@ -305,16 +314,22 @@ export async function deleteDomainRequest(
 }
 
 /**
- * Get domain statistics
+ * Get domain statistics (backward compatible - uses domain string match)
  */
 export async function getDomainStats(
   db: D1Database,
   domainId: number
 ): Promise<any> {
   try {
+    // Get domain first
+    const domain = await getDomainById(db, domainId);
+    if (!domain) return null;
+    
+    const domainPattern = `%@${domain.domain}`;
+    
     const emailCount = await db
-      .prepare('SELECT COUNT(*) as count FROM emails WHERE domain_id = ?')
-      .bind(domainId)
+      .prepare('SELECT COUNT(*) as count FROM emails WHERE email_address LIKE ?')
+      .bind(domainPattern)
       .first<{ count: number }>();
 
     const messageCount = await db
@@ -322,9 +337,9 @@ export async function getDomainStats(
         `SELECT COUNT(*) as count 
          FROM inbox i 
          JOIN emails e ON i.email_id = e.id 
-         WHERE e.domain_id = ?`
+         WHERE e.email_address LIKE ?`
       )
-      .bind(domainId)
+      .bind(domainPattern)
       .first<{ count: number }>();
 
     const unreadCount = await db
@@ -332,9 +347,9 @@ export async function getDomainStats(
         `SELECT COUNT(*) as count 
          FROM inbox i 
          JOIN emails e ON i.email_id = e.id 
-         WHERE e.domain_id = ? AND i.is_read = 0`
+         WHERE e.email_address LIKE ? AND i.is_read = 0`
       )
-      .bind(domainId)
+      .bind(domainPattern)
       .first<{ count: number }>();
 
     const emails = await db
@@ -342,11 +357,11 @@ export async function getDomainStats(
         `SELECT e.email_address, e.created_at,
          (SELECT COUNT(*) FROM inbox WHERE email_id = e.id) as message_count
          FROM emails e
-         WHERE e.domain_id = ?
+         WHERE e.email_address LIKE ?
          ORDER BY e.created_at DESC
          LIMIT 10`
       )
-      .bind(domainId)
+      .bind(domainPattern)
       .all();
 
     return {
