@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     auto_delete_days INTEGER DEFAULT 7,
     language TEXT DEFAULT 'id',
     timezone TEXT DEFAULT 'Asia/Jakarta',
+    is_premium INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
