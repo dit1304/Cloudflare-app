@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2024-02-07
+
+### ✨ New Features
+
+#### Pagination System
+- **List Pagination**: Added pagination to `/list` command (15 emails per page)
+- **Navigation Buttons**: Previous/Next buttons for easy navigation
+- **Page Indicator**: Shows current page and total pages
+- **Performance**: Optimized database queries with LIMIT/OFFSET
+
+#### Credit & About
+- **Author Info**: Added `/credit` and `/about` commands
+- **Menu Button**: Added "ℹ️ About / Credit" button in main menu
+- **Contact Link**: Direct link to contact admin (@kakatiri)
+- **Version Info**: Display bot version and tech stack
+
+### 🐛 Bug Fixes
+- Fixed admin `/list` rate limit issues
+- Fixed `/read` command return type consistency
+- Improved error messages with proper keyboard buttons
+
+### 🔧 Improvements
+- Limited admin email list to prevent Telegram rate limit
+- Simplified email body decoding logic
+- Better error handling throughout the app
+
 ## [2.0.0] - 2024-02-07
 
 ### 🎉 Major Improvements
