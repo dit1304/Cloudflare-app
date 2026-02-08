@@ -91,7 +91,7 @@ export async function getUserDomains(
       .prepare('SELECT * FROM custom_domains WHERE user_id = ? ORDER BY requested_at DESC')
       .bind(userId)
       .all();
-    return (result.results as CustomDomain[]) || [];
+    return (result.results as unknown as CustomDomain[]) || [];
   } catch (error) {
     logError('getUserDomains error', error);
     return [];

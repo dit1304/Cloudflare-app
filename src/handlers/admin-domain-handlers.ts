@@ -8,6 +8,7 @@ import {
   getPendingDomains,
   getAllDomains,
   getDomainById,
+  getDomainByName,
   approveDomain,
   rejectDomain,
   activateDomain,

@@ -161,7 +161,7 @@ Upgrade to Enterprise untuk lebih banyak domain.`,
   }
 
   // Create request
-  const result = await createDomainRequest(env.DB, userId, domain, note);
+  const result = await createDomainRequest(env.DB, userId, domain, note || undefined);
   if (!result.success) {
     return {
       text: `❌ <b>Request Failed</b>
