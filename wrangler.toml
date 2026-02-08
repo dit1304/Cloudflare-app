@@ -6,7 +6,7 @@ compatibility_date = "2024-01-01"
 # Environment Variables (non-sensitive)
 [vars]
 # Comma-separated list of domains for email routing
-TEMP_EMAIL_DOMAIN = "zerostore.tech,zerostore.dev,zsmail.me"
+TEMP_EMAIL_DOMAIN = "zerostore.tech,zerostore.dev,zerostore.online,zsmail.me,zsmail.tech,zsecret.me"
 
 # Telegram User ID of bot admin
 # Get your ID from @userinfobot
