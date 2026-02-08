@@ -48,6 +48,7 @@ wrangler.toml         - Cloudflare Workers config
 - Database schema is in `src/db/schema.sql`
 
 ## Recent Changes
+- 2026-02-09: Improved email parsing - added QP fallback decoding in extractMimePart and extractEmailBody, improved MIME header order handling, refined parseFromHeader for bounce/VERP senders (shows clean domain like cloudflare.com instead of raw bounce address)
 - 2026-02-09: Fixed custom domain activation bug - added missing `getDomainByName` import in admin-domain-handlers.ts, fixed `InlineKeyboardButton` type to support `url` property, fixed type casting in custom-domains.ts, fixed null/undefined mismatch in domain-handlers.ts
 - 2026-02-08: Added comprehensive error handling to handleEmail, sendTelegramMessage, editTelegramMessage; HTML escaping for Telegram notifications; duplicate email graceful handling
 - 2026-02-08: Initial Replit setup - configured wrangler dev for port 5000, added health check route, fixed missing extractLinks import
