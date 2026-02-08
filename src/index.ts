@@ -478,137 +478,205 @@ app.post("/webhooks/telegram", async (c) => {
 // ============ EMAIL HANDLER (from Cloudflare Email Routing) ============
 // Note: parseFromHeader is now imported from utils/email-parser
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
   console.log(`📧 Email received: ${message.from} -> ${message.to}`);
 
-  const toAddress = message.to.toLowerCase();
-  const subject = message.headers.get("subject") || "(Tanpa subjek)";
-  const fromHeader = message.headers.get("from") || "";
-  const senderDisplay = parseFromHeader(fromHeader, message.from);
-  const senderLower = message.from.toLowerCase();
-
-  // Check global blacklist
   try {
-    const blacklisted = await env.DB.prepare(
-      "SELECT id FROM blacklist WHERE ? LIKE '%' || sender_pattern || '%'"
-    ).bind(senderLower).first();
+    const toAddress = message.to.toLowerCase();
+    const subject = message.headers.get("subject") || "(Tanpa subjek)";
+    const fromHeader = message.headers.get("from") || "";
+    const senderDisplay = parseFromHeader(fromHeader, message.from);
+    const senderLower = message.from.toLowerCase();
 
-    if (blacklisted) {
-      console.log(`🚫 Email blocked (blacklisted sender): ${message.from}`);
-      return;
-    }
-  } catch (e) {
-    console.error("Blacklist check error:", e);
-  }
+    const safeSubject = escapeHtml(subject);
+    const safeSenderDisplay = escapeHtml(senderDisplay);
 
-  let email = await env.DB.prepare(
-    "SELECT e.id, e.user_id, u.telegram_user_id FROM emails e JOIN users u ON e.user_id = u.id WHERE LOWER(e.email_address) = ?"
-  )
-    .bind(toAddress)
-    .first<{ id: number; user_id: number; telegram_user_id: string }>();
-
-  if (!email) {
-    console.log("Email address not found, creating catch-all entry:", toAddress);
-    
+    // Check global blacklist
     try {
-      const adminUserId = await getOrCreateAdminUser(env.DB, env.ADMIN_USER_ID);
-      const localPart = toAddress.split("@")[0];
-      
-      const emailResult = await env.DB.prepare(
-        "INSERT INTO emails (user_id, email_address, local_part, is_active) VALUES (?, ?, ?, 1) RETURNING id"
+      const blacklisted = await env.DB.prepare(
+        "SELECT id FROM blacklist WHERE ? LIKE '%' || sender_pattern || '%'"
+      ).bind(senderLower).first();
+
+      if (blacklisted) {
+        console.log(`🚫 Email blocked (blacklisted sender): ${message.from}`);
+        return;
+      }
+    } catch (e) {
+      console.error("Blacklist check error:", e);
+    }
+
+    let email: { id: number; user_id: number; telegram_user_id: string } | null = null;
+    try {
+      email = await env.DB.prepare(
+        "SELECT e.id, e.user_id, u.telegram_user_id FROM emails e JOIN users u ON e.user_id = u.id WHERE LOWER(e.email_address) = ?"
       )
-        .bind(adminUserId, toAddress, localPart)
-        .first<{ id: number }>();
-    
-    if (emailResult) {
-        const rawEmail = await new Response(message.raw).text();
-        const body = extractEmailBody(rawEmail);
+        .bind(toAddress)
+        .first<{ id: number; user_id: number; telegram_user_id: string }>();
+    } catch (e) {
+      console.error("Email lookup error:", e);
+    }
+
+    if (!email) {
+      console.log("Email address not found, creating catch-all entry:", toAddress);
+      
+      try {
+        const adminUserId = await getOrCreateAdminUser(env.DB, env.ADMIN_USER_ID);
+        const localPart = toAddress.split("@")[0];
         
-        const inboxResult = await env.DB.prepare(
-          "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?) RETURNING id"
-        )
-          .bind(emailResult.id, message.from, subject, body, JSON.stringify(Object.fromEntries(message.headers)))
-          .first<{ id: number }>();
+        let emailId: number | null = null;
         
-        if (env.FALLBACK_EMAIL) {
-          await message.forward(env.FALLBACK_EMAIL);
+        // Try to insert, handle duplicate gracefully
+        try {
+          const emailResult = await env.DB.prepare(
+            "INSERT INTO emails (user_id, email_address, local_part, is_active) VALUES (?, ?, ?, 1) RETURNING id"
+          )
+            .bind(adminUserId, toAddress, localPart)
+            .first<{ id: number }>();
+          emailId = emailResult?.id || null;
+        } catch (insertErr) {
+          // Email address already exists (catch-all duplicate), look it up instead
+          console.log("Catch-all email already exists, looking up:", toAddress);
+          const existing = await env.DB.prepare(
+            "SELECT id FROM emails WHERE LOWER(email_address) = ?"
+          ).bind(toAddress).first<{ id: number }>();
+          emailId = existing?.id || null;
         }
         
-        const botToken = env.TELEGRAM_BOT_TOKEN;
-        if (botToken && env.ADMIN_USER_ID) {
-          const msgId = inboxResult?.id || "";
-          const catchAllBody = body ? body.substring(0, 3000).trim() : "";
-          const notificationText = `📨 <b>Email Baru (Catch-All)</b>
+        if (emailId) {
+          const rawEmail = await new Response(message.raw).text();
+          const body = extractEmailBody(rawEmail);
+          
+          let headersJson = "{}";
+          try {
+            headersJson = JSON.stringify(Object.fromEntries(message.headers));
+          } catch (e) {
+            console.error("Headers serialization error:", e);
+          }
+          
+          const inboxResult = await env.DB.prepare(
+            "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?) RETURNING id"
+          )
+            .bind(emailId, message.from, subject, body, headersJson)
+            .first<{ id: number }>();
+          
+          if (env.FALLBACK_EMAIL) {
+            try {
+              await message.forward(env.FALLBACK_EMAIL);
+            } catch (fwdErr) {
+              console.error("Failed to forward catch-all email:", fwdErr);
+            }
+          }
+          
+          const botToken = env.TELEGRAM_BOT_TOKEN;
+          if (botToken && env.ADMIN_USER_ID) {
+            const msgId = inboxResult?.id || "";
+            const catchAllBody = body ? escapeHtml(body.substring(0, 3000).trim()) : "";
+            const notificationText = `📨 <b>Email Baru (Catch-All)</b>
 
 📧 <b>Ke:</b> ${toAddress}
-👤 <b>Dari:</b> ${senderDisplay}
-📋 <b>Subjek:</b> ${subject}
+👤 <b>Dari:</b> ${safeSenderDisplay}
+📋 <b>Subjek:</b> ${safeSubject}
 
 ${catchAllBody}${body && body.length > 3000 ? "\n\n<i>... (pesan terpotong)</i>" : ""}`;
-          
-          // Add inline button to read
-          const keyboard = {
-            inline_keyboard: [[
-              { text: "📖 Baca Email", callback_data: `read:${msgId}` }
-            ]]
-          };
-          await sendTelegramMessage(botToken, parseInt(env.ADMIN_USER_ID), notificationText, keyboard);
+            
+            const keyboard = {
+              inline_keyboard: [[
+                { text: "📖 Baca Email", callback_data: `read:${msgId}` }
+              ]]
+            };
+            try {
+              await sendTelegramMessage(botToken, parseInt(env.ADMIN_USER_ID), notificationText, keyboard);
+            } catch (tgErr) {
+              console.error("Failed to send catch-all notification:", tgErr);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Catch-all email creation error:", e);
+        if (env.FALLBACK_EMAIL) {
+          try {
+            await message.forward(env.FALLBACK_EMAIL);
+          } catch (fwdErr) {
+            console.error("Failed to forward email after catch-all error:", fwdErr);
+          }
         }
       }
+      return;
+    }
+
+    const rawEmail = await new Response(message.raw).text();
+    const body = extractEmailBody(rawEmail);
+    const links = extractLinks(rawEmail);
+
+    let headersJson = "{}";
+    try {
+      headersJson = JSON.stringify(Object.fromEntries(message.headers));
     } catch (e) {
-      console.error("Catch-all email creation error:", e);
-      if (env.FALLBACK_EMAIL) {
+      console.error("Headers serialization error:", e);
+    }
+
+    const inboxResult = await env.DB.prepare(
+      "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?) RETURNING id"
+    )
+      .bind(email.id, message.from, subject, body, headersJson)
+      .first<{ id: number }>();
+
+    if (env.FALLBACK_EMAIL) {
+      try {
         await message.forward(env.FALLBACK_EMAIL);
+        console.log("Email forwarded to backup:", env.FALLBACK_EMAIL);
+      } catch (e) {
+        console.error("Failed to forward email:", e);
       }
     }
-    return;
-  }
 
-  const rawEmail = await new Response(message.raw).text();
-  const body = extractEmailBody(rawEmail);
-  const links = extractLinks(rawEmail);
-
-  const inboxResult = await env.DB.prepare(
-    "INSERT INTO inbox (email_id, sender, subject, body, headers) VALUES (?, ?, ?, ?, ?) RETURNING id"
-  )
-    .bind(email.id, message.from, subject, body, JSON.stringify(Object.fromEntries(message.headers)))
-    .first<{ id: number }>();
-
-  if (env.FALLBACK_EMAIL) {
-    try {
-      await message.forward(env.FALLBACK_EMAIL);
-      console.log("Email forwarded to backup:", env.FALLBACK_EMAIL);
-    } catch (e) {
-      console.error("Failed to forward email:", e);
-    }
-  }
-
-  const bodyPreview = body ? body.substring(0, 3000).trim() : "";
-  
-  let notificationText = `📬 <b>Email Baru!</b>
+    const bodyPreview = body ? escapeHtml(body.substring(0, 3000).trim()) : "";
+    
+    let notificationText = `📬 <b>Email Baru!</b>
 
 📧 <b>Ke:</b> ${toAddress}
-👤 <b>Dari:</b> ${senderDisplay}
-📋 <b>Subjek:</b> ${subject}
+👤 <b>Dari:</b> ${safeSenderDisplay}
+📋 <b>Subjek:</b> ${safeSubject}
 
 ${bodyPreview}${body && body.length > 3000 ? "\n\n<i>... (pesan terpotong)</i>" : ""}`;
 
-  const msgId = inboxResult?.id || "";
-  const localPart = toAddress.split("@")[0];
-  
-  // Build keyboard with action buttons
-  const keyboard = {
-    inline_keyboard: [
-      [
-        { text: "📖 Baca Email", callback_data: `read:${msgId}` },
-        { text: "📬 Inbox", callback_data: `mails:${localPart}` }
+    const msgId = inboxResult?.id || "";
+    const localPart = toAddress.split("@")[0];
+    
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: "📖 Baca Email", callback_data: `read:${msgId}` },
+          { text: "📬 Inbox", callback_data: `mails:${localPart}` }
+        ]
       ]
-    ]
-  };
+    };
 
-  const botToken = env.TELEGRAM_BOT_TOKEN;
-  if (botToken) {
-    await sendTelegramMessage(botToken, parseInt(email.telegram_user_id), notificationText, keyboard);
+    const botToken = env.TELEGRAM_BOT_TOKEN;
+    if (botToken) {
+      try {
+        await sendTelegramMessage(botToken, parseInt(email.telegram_user_id), notificationText, keyboard);
+      } catch (tgErr) {
+        console.error("Failed to send email notification:", tgErr);
+      }
+    }
+  } catch (error) {
+    console.error("❌ Critical error in handleEmail:", error);
+    // Try to forward to fallback as last resort
+    if (env.FALLBACK_EMAIL) {
+      try {
+        await message.forward(env.FALLBACK_EMAIL);
+      } catch (fwdErr) {
+        console.error("Failed to forward email in error handler:", fwdErr);
+      }
+    }
   }
 }
 
@@ -3116,56 +3184,78 @@ async function getOrCreateAdminUser(db: D1Database, adminTelegramId: string): Pr
 }
 
 async function sendTelegramMessage(botToken: string, chatId: number, text: string, keyboard?: any) {
-  const body: any = {
-    chat_id: chatId,
-    text: text,
-    parse_mode: "HTML",
-  };
-  
-  if (keyboard) {
-    if (keyboard.inline_keyboard) {
-      body.reply_markup = keyboard;
-    } else {
-      body.reply_markup = { inline_keyboard: keyboard };
+  try {
+    const body: any = {
+      chat_id: chatId,
+      text: text,
+      parse_mode: "HTML",
+    };
+    
+    if (keyboard) {
+      if (keyboard.inline_keyboard) {
+        body.reply_markup = keyboard;
+      } else {
+        body.reply_markup = { inline_keyboard: keyboard };
+      }
     }
-  }
-  
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+    
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-  if (!response.ok) {
-    console.error("Telegram API error:", await response.text());
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Telegram API error:", errorText);
+      
+      // If HTML parsing fails, retry without parse_mode
+      if (errorText.includes("can't parse entities")) {
+        body.parse_mode = undefined;
+        body.text = text.replace(/<[^>]+>/g, '');
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      }
+    }
+  } catch (error) {
+    console.error("sendTelegramMessage error:", error);
   }
 }
 
-// Edit existing message instead of sending new one (prevents chat spam)
 async function editTelegramMessage(botToken: string, chatId: number, messageId: number, text: string, keyboard?: any) {
-  const body: any = {
-    chat_id: chatId,
-    message_id: messageId,
-    text: text,
-    parse_mode: "HTML",
-  };
-  
-  if (keyboard) {
-    if (keyboard.inline_keyboard) {
-      body.reply_markup = keyboard;
-    } else {
-      body.reply_markup = { inline_keyboard: keyboard };
+  try {
+    const body: any = {
+      chat_id: chatId,
+      message_id: messageId,
+      text: text,
+      parse_mode: "HTML",
+    };
+    
+    if (keyboard) {
+      if (keyboard.inline_keyboard) {
+        body.reply_markup = keyboard;
+      } else {
+        body.reply_markup = { inline_keyboard: keyboard };
+      }
     }
-  }
-  
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+    
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-  if (!response.ok) {
-    console.error("Telegram editMessage error:", await response.text());
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (!errorText.includes("message is not modified")) {
+        console.error("Telegram editMessage error:", errorText);
+      }
+    }
+  } catch (error) {
+    console.error("editTelegramMessage error:", error);
   }
 }
 
