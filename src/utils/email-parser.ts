@@ -184,11 +184,23 @@ export function extractMimePart(rawEmail: string, contentType: string): string |
   const match = rawEmail.match(regex);
   if (!match) return null;
   
-  const encoding = (match[1] || '').toLowerCase().trim();
+  let encoding = (match[1] || '').toLowerCase().trim();
   let content = match[2] || '';
   
   // Remove MIME boundaries
   content = content.replace(/--[\w-]+--?\s*$/gm, '').trim();
+  
+  // If encoding wasn't captured from the regex, search for it in the header block
+  if (!encoding) {
+    const headerBlock = rawEmail.substring(
+      Math.max(0, rawEmail.indexOf(match[0]) - 500),
+      rawEmail.indexOf(match[0]) + match[0].indexOf(content)
+    );
+    const encodingMatch = headerBlock.match(/Content-Transfer-Encoding:\s*([^\r\n]+)/i);
+    if (encodingMatch) {
+      encoding = encodingMatch[1].toLowerCase().trim();
+    }
+  }
   
   // Decode based on encoding
   if (encoding === 'base64') {
@@ -197,6 +209,11 @@ export function extractMimePart(rawEmail: string, contentType: string): string |
     content = decodeQuotedPrintable(content);
   } else if (encoding === '8bit' || encoding === '7bit') {
     // Already decoded
+  }
+  
+  // Fallback: if content still looks QP-encoded, decode it
+  if (/=[0-9A-Fa-f]{2}/.test(content) && (content.includes('=0A') || content.includes('=0D') || content.includes('=3D') || content.includes('=20'))) {
+    content = decodeQuotedPrintable(content);
   }
   
   return content;
@@ -230,6 +247,11 @@ export function extractEmailBody(rawEmail: string): string {
       plainText = decodeBase64(plainText);
     }
     
+    // Check if still QP encoded (MIME extraction may have missed the encoding)
+    if (/=[0-9A-Fa-f]{2}/.test(plainText)) {
+      plainText = decodeQuotedPrintable(plainText);
+    }
+    
     const cleaned = stripHtml(plainText).trim();
     if (cleaned.length > 20) {
       return cleaned.substring(0, 4000);
@@ -244,6 +266,11 @@ export function extractEmailBody(rawEmail: string): string {
     // Check if it's base64 encoded
     if (isBase64(htmlContent)) {
       htmlContent = decodeBase64(htmlContent);
+    }
+    
+    // Check if still QP encoded
+    if (/=[0-9A-Fa-f]{2}/.test(htmlContent)) {
+      htmlContent = decodeQuotedPrintable(htmlContent);
     }
     
     const stripped = stripHtml(htmlContent).trim();
@@ -450,20 +477,34 @@ export function parseFromHeader(fromHeader: string, rawFrom: string): string {
     // Try to extract display name from "Name" <email> format
     const match = fromHeader.match(/^["']?([^"'<]+)["']?\s*<([^>]+)>$/);
     if (match && match[1]) {
-      return match[1].trim();
+      const name = match[1].trim();
+      if (name.length > 0 && !name.includes('bounces')) {
+        return name;
+      }
     }
     
     // Try without quotes
     const match2 = fromHeader.match(/^([^<]+)<([^>]+)>$/);
     if (match2 && match2[1]) {
-      return match2[1].trim();
+      const name = match2[1].trim();
+      if (name.length > 0 && !name.includes('bounces')) {
+        return name;
+      }
     }
   }
   
-  // Handle bounces email format
-  if (rawFrom.includes('=') && rawFrom.includes('bounces')) {
-    const domain = rawFrom.split('@')[1];
-    return domain || rawFrom;
+  // Handle bounces/VERP email format (e.g., msprvs1=xxx=bounces-123@notify.cloudflare.com)
+  const emailAddr = rawFrom || fromHeader;
+  if (emailAddr.includes('bounces-') || emailAddr.includes('msprvs') || emailAddr.includes('prvs=')) {
+    const atIndex = emailAddr.indexOf('@');
+    if (atIndex > 0) {
+      const domain = emailAddr.substring(atIndex + 1);
+      const domainParts = domain.split('.');
+      if (domainParts.length >= 2) {
+        return domainParts[domainParts.length - 2] + '.' + domainParts[domainParts.length - 1];
+      }
+      return domain;
+    }
   }
   
   return rawFrom;
