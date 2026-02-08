@@ -470,41 +470,30 @@ export function extractLinks(rawEmail: string): string[] {
  * Parse "From" header with better handling
  */
 export function parseFromHeader(fromHeader: string, rawFrom: string): string {
-  // Decode RFC 2047 encoded display name
   fromHeader = decodeRFC2047(fromHeader);
   
   if (fromHeader) {
-    // Try to extract display name from "Name" <email> format
     const match = fromHeader.match(/^["']?([^"'<]+)["']?\s*<([^>]+)>$/);
-    if (match && match[1]) {
+    if (match && match[1] && match[2]) {
       const name = match[1].trim();
-      if (name.length > 0 && !name.includes('bounces')) {
-        return name;
+      const email = match[2].trim();
+      if (name.length > 0 && name !== email) {
+        return `${name} (${email})`;
       }
+      return email;
     }
     
-    // Try without quotes
     const match2 = fromHeader.match(/^([^<]+)<([^>]+)>$/);
-    if (match2 && match2[1]) {
+    if (match2 && match2[1] && match2[2]) {
       const name = match2[1].trim();
-      if (name.length > 0 && !name.includes('bounces')) {
-        return name;
+      const email = match2[2].trim();
+      if (name.length > 0 && name !== email) {
+        return `${name} (${email})`;
       }
+      return email;
     }
-  }
-  
-  // Handle bounces/VERP email format (e.g., msprvs1=xxx=bounces-123@notify.cloudflare.com)
-  const emailAddr = rawFrom || fromHeader;
-  if (emailAddr.includes('bounces-') || emailAddr.includes('msprvs') || emailAddr.includes('prvs=')) {
-    const atIndex = emailAddr.indexOf('@');
-    if (atIndex > 0) {
-      const domain = emailAddr.substring(atIndex + 1);
-      const domainParts = domain.split('.');
-      if (domainParts.length >= 2) {
-        return domainParts[domainParts.length - 2] + '.' + domainParts[domainParts.length - 1];
-      }
-      return domain;
-    }
+    
+    return fromHeader;
   }
   
   return rawFrom;
