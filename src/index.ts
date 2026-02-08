@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import * as OTPAuth from "otpauth";
-import { extractEmailBody, parseFromHeader, stripHtml } from "./utils/email-parser";
+import { extractEmailBody, extractLinks, parseFromHeader, stripHtml } from "./utils/email-parser";
 import { log, logError } from "./utils/helpers";
 import {
   handleRequestDomain,
@@ -391,6 +391,11 @@ Buat email dengan domain tertentu:
   
   return response;
 }
+
+// ============ HEALTH CHECK ============
+app.get("/", (c) => {
+  return c.json({ status: "ok", name: "Temp Email Bot", version: "1.0.0" });
+});
 
 // ============ TELEGRAM WEBHOOK ============
 app.post("/webhooks/telegram", async (c) => {

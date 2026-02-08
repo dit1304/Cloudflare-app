@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --port 5000 --ip 0.0.0.0",
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create temp-email-db",
     "db:migrate": "wrangler d1 execute temp-email-db --file=./src/db/schema.sql",
