@@ -88,6 +88,86 @@ export function escapeHtml(text: string): string {
 }
 
 /**
+ * Convert Telegram message text + entities to HTML
+ * Preserves bold, italic, monospace, links, etc.
+ */
+export function entitiesToHtml(text: string, entities?: any[]): string {
+  if (!entities || entities.length === 0) {
+    return escapeHtml(text);
+  }
+
+  const codePoints = Array.from(text);
+
+  const sorted = [...entities].sort((a, b) => {
+    if (a.offset !== b.offset) return a.offset - b.offset;
+    return b.length - a.length;
+  });
+
+  const tagMap: Record<string, { open: string; close: string }> = {
+    bold: { open: '<b>', close: '</b>' },
+    italic: { open: '<i>', close: '</i>' },
+    underline: { open: '<u>', close: '</u>' },
+    strikethrough: { open: '<s>', close: '</s>' },
+    code: { open: '<code>', close: '</code>' },
+    pre: { open: '<pre>', close: '</pre>' },
+    spoiler: { open: '<tg-spoiler>', close: '</tg-spoiler>' },
+  };
+
+  const inserts: Map<number, { opens: string[]; closes: string[] }> = new Map();
+
+  const getInsert = (pos: number) => {
+    if (!inserts.has(pos)) inserts.set(pos, { opens: [], closes: [] });
+    return inserts.get(pos)!;
+  };
+
+  for (const e of sorted) {
+    const start = e.offset;
+    const end = e.offset + e.length;
+    const entityText = codePoints.slice(start, end).join('');
+
+    if (e.type === 'text_link' && e.url) {
+      getInsert(start).opens.push(`<a href="${escapeHtml(e.url)}">`);
+      getInsert(end).closes.unshift('</a>');
+    } else if (e.type === 'text_mention' && e.user) {
+      getInsert(start).opens.push(`<a href="tg://user?id=${e.user.id}">`);
+      getInsert(end).closes.unshift('</a>');
+    } else if (e.type === 'mention' || e.type === 'hashtag' || e.type === 'url' || e.type === 'email' || e.type === 'phone_number' || e.type === 'bot_command') {
+      continue;
+    } else if (e.type === 'custom_emoji') {
+      getInsert(start).opens.push(`<tg-emoji emoji-id="${e.custom_emoji_id}">`);
+      getInsert(end).closes.unshift('</tg-emoji>');
+    } else if (tagMap[e.type]) {
+      getInsert(start).opens.push(tagMap[e.type].open);
+      getInsert(end).closes.unshift(tagMap[e.type].close);
+    }
+  }
+
+  let result = '';
+  for (let i = 0; i < codePoints.length; i++) {
+    const ins = inserts.get(i);
+    if (ins) {
+      result += ins.closes.join('');
+      result += ins.opens.join('');
+    }
+    const ch = codePoints[i];
+    const inCode = sorted.some(e => (e.type === 'code' || e.type === 'pre') && i >= e.offset && i < e.offset + e.length);
+    if (!inCode) {
+      result += escapeHtml(ch);
+    } else {
+      result += ch;
+    }
+  }
+
+  const tail = inserts.get(codePoints.length);
+  if (tail) {
+    result += tail.closes.join('');
+    result += tail.opens.join('');
+  }
+
+  return result;
+}
+
+/**
  * Generate progress bar
  */
 export function generateProgressBar(current: number, total: number): string {

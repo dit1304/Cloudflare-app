@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import * as OTPAuth from "otpauth";
 import { extractEmailBody, extractLinks, parseFromHeader, stripHtml } from "./utils/email-parser";
-import { log, logError } from "./utils/helpers";
+import { log, logError, entitiesToHtml } from "./utils/helpers";
 import {
   handleRequestDomain,
   handleMyDomains,
@@ -454,10 +454,11 @@ app.post("/webhooks/telegram", async (c) => {
   const telegramUsername = payload.message.from.username || "";
   const chatId = payload.message.chat.id;
   const userMessage = payload.message.text.trim();
+  const messageEntities = payload.message.entities;
 
   try {
     await ensureUser(c.env.DB, telegramUserId, telegramUsername, c.env);
-    const response = await processCommand(c.env, telegramUserId, userMessage);
+    const response = await processCommand(c.env, telegramUserId, userMessage, messageEntities);
     if (typeof response === "object" && response.text) {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, response.text, response.keyboard);
     } else {
@@ -687,7 +688,8 @@ type CommandResponse = string | { text: string; keyboard?: any };
 async function processCommand(
   env: Bindings,
   telegramUserId: string,
-  message: string
+  message: string,
+  entities?: any[]
 ): Promise<CommandResponse> {
   console.log("🤖 Processing command:", { telegramUserId, message });
 
@@ -842,7 +844,7 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
       if (!isAdmin) {
         return t(lang, "admin_only");
       }
-      return await handleBroadcast(env, telegramUserId, arg);
+      return await handleBroadcast(env, telegramUserId, arg, message, entities);
 
     case "/users":
     case "/u":
@@ -1927,7 +1929,7 @@ async function handleCleanup(env: Bindings): Promise<string> {
 📪 Alamat dihapus: <b>${emailCleanup.meta.changes}</b> (tidak terpakai > 30 hari)`;
 }
 
-async function handleBroadcast(env: Bindings, adminChatId: string, message: string): Promise<string> {
+async function handleBroadcast(env: Bindings, adminChatId: string, message: string, fullMessage?: string, entities?: any[]): Promise<string> {
   if (!message || message.trim() === "") {
     return `⚠️ <b>Format:</b> <code>/broadcast pesan</code>
 
@@ -1938,6 +1940,25 @@ Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
   
   if (!users.results || users.results.length === 0) {
     return `❌ Tidak ada user terdaftar.`;
+  }
+
+  let formattedMessage: string;
+  if (entities && entities.length > 0 && fullMessage) {
+    const cmdMatch = fullMessage.match(/^\/(?:broadcast|bc)\s+/i);
+    const cmdLen = cmdMatch ? cmdMatch[0].length : 0;
+
+    const msgEntities = entities
+      .filter((e: any) => e.offset + e.length > cmdLen)
+      .map((e: any) => ({
+        ...e,
+        offset: Math.max(0, e.offset - cmdLen),
+        length: e.offset < cmdLen ? e.length - (cmdLen - e.offset) : e.length
+      }))
+      .filter((e: any) => e.length > 0);
+
+    formattedMessage = entitiesToHtml(message, msgEntities);
+  } else {
+    formattedMessage = escapeHtml(message);
   }
 
   const botToken = env.TELEGRAM_BOT_TOKEN;
@@ -1953,7 +1974,7 @@ Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
     return "▓".repeat(filled) + "░".repeat(empty) + ` ${percentage}%`;
   };
 
-  const safeMessage = escapeHtml(message).substring(0, 500);
+  const previewMessage = formattedMessage.substring(0, 500);
 
   const getStatusText = (done: boolean = false): string => {
     const progress = getProgressBar(processed, totalUsers);
@@ -1967,7 +1988,7 @@ ${progress}
 📊 Total: <b>${totalUsers}</b> user
 
 💬 <b>Pesan:</b>
-${safeMessage}`;
+${previewMessage}`;
     }
     return `📢 <b>Broadcasting...</b>
 
@@ -1991,7 +2012,7 @@ ${progress}
   const initialResult = await initialMsg.json() as any;
   const messageId = initialResult.result?.message_id;
 
-  const broadcastText = `📢 <b>Pengumuman</b>\n\n${message}`;
+  const broadcastText = `📢 <b>Pengumuman</b>\n\n${formattedMessage}`;
   const updateEvery = Math.max(1, Math.min(5, Math.floor(totalUsers / 3)));
 
   for (const user of users.results as any[]) {
