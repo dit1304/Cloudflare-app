@@ -1953,6 +1953,8 @@ Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
     return "▓".repeat(filled) + "░".repeat(empty) + ` ${percentage}%`;
   };
 
+  const safeMessage = escapeHtml(message).substring(0, 500);
+
   const getStatusText = (done: boolean = false): string => {
     const progress = getProgressBar(processed, totalUsers);
     if (done) {
@@ -1962,7 +1964,10 @@ ${progress}
 
 ✅ Terkirim: <b>${success}</b>
 ❌ Gagal: <b>${failed}</b>
-📊 Total: <b>${totalUsers}</b> user`;
+📊 Total: <b>${totalUsers}</b> user
+
+💬 <b>Pesan:</b>
+${safeMessage}`;
     }
     return `📢 <b>Broadcasting...</b>
 
