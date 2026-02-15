@@ -228,61 +228,117 @@ export function extractCharset(rawEmail: string): string {
 }
 
 /**
+ * Parse MIME parts by splitting on boundaries
+ */
+function parseMimeParts(rawEmail: string): Array<{ headers: string; body: string; contentType: string; encoding: string }> {
+  const parts: Array<{ headers: string; body: string; contentType: string; encoding: string }> = [];
+
+  const boundaryMatches = rawEmail.match(/boundary=["']?([^"'\s;]+)["']?/gi);
+  if (!boundaryMatches) return parts;
+
+  for (const bm of boundaryMatches) {
+    const boundary = bm.replace(/boundary=["']?/i, '').replace(/["']$/, '');
+    const sections = rawEmail.split('--' + boundary);
+
+    for (const section of sections) {
+      if (section.startsWith('--') || section.trim().length === 0) continue;
+
+      const headerEnd = section.search(/\r?\n\r?\n/);
+      if (headerEnd < 0) continue;
+
+      const headers = section.substring(0, headerEnd);
+      const body = section.substring(headerEnd).replace(/^\r?\n\r?\n/, '').replace(/\s*--[\w-]*--?\s*$/, '').trim();
+
+      if (body.length === 0) continue;
+
+      const ctMatch = headers.match(/Content-Type:\s*([^;\r\n]+)/i);
+      const contentType = ctMatch ? ctMatch[1].trim().toLowerCase() : '';
+
+      if (contentType.startsWith('multipart/')) continue;
+
+      const encMatch = headers.match(/Content-Transfer-Encoding:\s*([^\r\n]+)/i);
+      const encoding = encMatch ? encMatch[1].trim().toLowerCase() : '';
+
+      parts.push({ headers, body, contentType, encoding });
+    }
+  }
+
+  return parts;
+}
+
+/**
+ * Decode a MIME part body based on its encoding
+ */
+function decodeMimePartBody(body: string, encoding: string, charset: string): string {
+  let content = body;
+
+  if (encoding === 'base64') {
+    content = decodeBase64(content);
+  } else if (encoding === 'quoted-printable') {
+    content = decodeQuotedPrintable(content);
+  }
+
+  if (isBase64(content)) {
+    content = decodeBase64(content);
+  }
+
+  if (/=[0-9A-Fa-f]{2}/.test(content) && (content.includes('=0A') || content.includes('=0D') || content.includes('=3D') || content.includes('=20'))) {
+    content = decodeQuotedPrintable(content);
+  }
+
+  content = decodeCharset(content, charset);
+  return content;
+}
+
+/**
  * Enhanced email body extraction
  */
 export function extractEmailBody(rawEmail: string): string {
-  // Decode RFC 2047 encoded headers first
   rawEmail = decodeRFC2047(rawEmail);
-  
-  // Get charset
   const charset = extractCharset(rawEmail);
-  
-  // Try to extract plain text first
+
+  const mimeParts = parseMimeParts(rawEmail);
+
+  if (mimeParts.length > 0) {
+    const plainPart = mimeParts.find(p => p.contentType === 'text/plain');
+    if (plainPart) {
+      const decoded = decodeMimePartBody(plainPart.body, plainPart.encoding, charset);
+      const cleaned = stripHtml(decoded).trim();
+      if (cleaned.length > 20) {
+        return cleaned.substring(0, 4000);
+      }
+    }
+
+    const htmlPart = mimeParts.find(p => p.contentType === 'text/html');
+    if (htmlPart) {
+      const decoded = decodeMimePartBody(htmlPart.body, htmlPart.encoding, charset);
+      const stripped = stripHtml(decoded).trim();
+      if (stripped.length > 20) {
+        return stripped.substring(0, 4000);
+      }
+    }
+  }
+
   let plainText = extractMimePart(rawEmail, 'text/plain');
   if (plainText && plainText.trim().length > 20) {
-    plainText = decodeCharset(plainText, charset);
-    
-    // Check if it's base64 encoded again
-    if (isBase64(plainText)) {
-      plainText = decodeBase64(plainText);
-    }
-    
-    // Check if still QP encoded (MIME extraction may have missed the encoding)
-    if (/=[0-9A-Fa-f]{2}/.test(plainText)) {
-      plainText = decodeQuotedPrintable(plainText);
-    }
-    
+    plainText = decodeMimePartBody(plainText, '', charset);
     const cleaned = stripHtml(plainText).trim();
     if (cleaned.length > 20) {
       return cleaned.substring(0, 4000);
     }
   }
-  
-  // Try HTML content
+
   let htmlContent = extractMimePart(rawEmail, 'text/html');
   if (htmlContent && htmlContent.trim().length > 0) {
-    htmlContent = decodeCharset(htmlContent, charset);
-    
-    // Check if it's base64 encoded
-    if (isBase64(htmlContent)) {
-      htmlContent = decodeBase64(htmlContent);
-    }
-    
-    // Check if still QP encoded
-    if (/=[0-9A-Fa-f]{2}/.test(htmlContent)) {
-      htmlContent = decodeQuotedPrintable(htmlContent);
-    }
-    
+    htmlContent = decodeMimePartBody(htmlContent, '', charset);
     const stripped = stripHtml(htmlContent).trim();
     if (stripped.length > 20) {
       return stripped.substring(0, 4000);
     }
   }
-  
-  // Fallback: extract body from raw email
+
   let body = rawEmail.replace(/^[\s\S]*?\r?\n\r?\n/, '');
-  
-  // Clean up MIME headers
+
   body = body
     .replace(/--[\w-]+[^\n]*/g, '')
     .replace(/Content-Type:[^\n]*/gi, '')
@@ -290,31 +346,24 @@ export function extractEmailBody(rawEmail: string): string {
     .replace(/Content-Disposition:[^\n]*/gi, '')
     .replace(/Content-ID:[^\n]*/gi, '')
     .trim();
-  
-  // Try to detect and decode base64 chunks
-  const base64Chunks = body.match(/[A-Za-z0-9+/]{100,}={0,2}/g);
-  if (base64Chunks) {
-    for (const chunk of base64Chunks) {
-      if (isBase64(chunk)) {
-        try {
-          const decoded = decodeBase64(chunk);
-          if (decoded.length > body.length / 2) {
-            body = decoded;
-            break;
-          }
-        } catch {}
+
+  const base64Lines = body.match(/^[A-Za-z0-9+/\r\n]{50,}={0,2}$/m);
+  if (base64Lines) {
+    const base64Block = body.match(/([A-Za-z0-9+/\s]{100,}={0,2})/);
+    if (base64Block) {
+      const decoded = decodeBase64(base64Block[1]);
+      if (decoded && /[a-zA-Z<>\s]/.test(decoded) && decoded.length > 20) {
+        body = decoded;
       }
     }
   }
-  
-  // Try quoted-printable
+
   if (body.includes('=\n') || /=[0-9A-F]{2}/.test(body)) {
     body = decodeQuotedPrintable(body);
   }
-  
-  // Decode charset
+
   body = decodeCharset(body, charset);
-  
+
   return stripHtml(body).substring(0, 4000);
 }
 
