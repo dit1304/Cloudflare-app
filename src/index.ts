@@ -446,6 +446,47 @@ app.post("/webhooks/telegram", async (c) => {
     return c.text("OK", 200);
   }
 
+  // Handle photo messages (for photo broadcast)
+  if (payload.message?.photo && payload.message?.caption) {
+    const telegramUserId = String(payload.message.from.id);
+    const telegramUsername = payload.message.from.username || "";
+    const chatId = payload.message.chat.id;
+    const caption = payload.message.caption.trim();
+    const captionEntities = payload.message.caption_entities;
+    const photos = payload.message.photo;
+
+    if (!photos || photos.length === 0) {
+      return c.text("OK", 200);
+    }
+
+    const fileId = photos[photos.length - 1].file_id;
+
+    try {
+      await ensureUser(c.env.DB, telegramUserId, telegramUsername, c.env);
+
+      const isAdmin = telegramUserId === c.env.ADMIN_USER_ID;
+      const cmdMatch = caption.match(/^\/(broadcast|bc)\s+([\s\S]*)/i);
+
+      if (cmdMatch) {
+        if (!isAdmin) {
+          await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, "⚠️ Hanya admin yang bisa broadcast.");
+          return c.text("OK", 200);
+        }
+        const bcMessage = cmdMatch[2].trim();
+        if (bcMessage.length > 0) {
+          await handlePhotoBroadcast(c.env, String(chatId), fileId, bcMessage, caption, captionEntities);
+        } else {
+          await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, "⚠️ Caption broadcast tidak boleh kosong.");
+        }
+      }
+    } catch (error) {
+      console.error("Error processing photo message:", error);
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, "❌ Maaf, terjadi kesalahan.");
+    }
+
+    return c.text("OK", 200);
+  }
+
   if (!payload.message?.text) {
     return c.text("OK", 200);
   }
@@ -2046,6 +2087,132 @@ ${progress}
           body: JSON.stringify({
             chat_id: adminChatId,
             message_id: messageId,
+            text: processed === totalUsers ? getStatusText(true) : getStatusText(),
+            parse_mode: "HTML"
+          })
+        });
+      } catch (e) {
+        // Ignore edit errors
+      }
+    }
+  }
+
+  return "";
+}
+
+async function handlePhotoBroadcast(env: Bindings, adminChatId: string, fileId: string, message: string, fullCaption?: string, captionEntities?: any[]): Promise<string> {
+  const users = await env.DB.prepare("SELECT telegram_user_id FROM users").all();
+
+  if (!users.results || users.results.length === 0) {
+    await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, parseInt(adminChatId), "❌ Tidak ada user terdaftar.");
+    return "";
+  }
+
+  let formattedCaption: string;
+  if (captionEntities && captionEntities.length > 0 && fullCaption) {
+    const cmdMatch = fullCaption.match(/^\/(broadcast|bc)\s+/i);
+    const cmdLen = cmdMatch ? cmdMatch[0].length : 0;
+
+    const msgEntities = captionEntities
+      .filter((e: any) => e.offset + e.length > cmdLen)
+      .map((e: any) => ({
+        ...e,
+        offset: Math.max(0, e.offset - cmdLen),
+        length: e.offset < cmdLen ? e.length - (cmdLen - e.offset) : e.length
+      }))
+      .filter((e: any) => e.length > 0);
+
+    formattedCaption = entitiesToHtml(message, msgEntities);
+  } else {
+    formattedCaption = escapeHtml(message);
+  }
+
+  const botToken = env.TELEGRAM_BOT_TOKEN;
+  const totalUsers = users.results.length;
+  let success = 0;
+  let failed = 0;
+  let processed = 0;
+
+  const getProgressBar = (current: number, total: number): string => {
+    const percentage = Math.round((current / total) * 100);
+    const filled = Math.round(percentage / 10);
+    const empty = 10 - filled;
+    return "▓".repeat(filled) + "░".repeat(empty) + ` ${percentage}%`;
+  };
+
+  const previewCaption = formattedCaption.substring(0, 300);
+
+  const getStatusText = (done: boolean = false): string => {
+    const progress = getProgressBar(processed, totalUsers);
+    if (done) {
+      return `📢 <b>Broadcast Foto Selesai</b>
+
+${progress}
+
+✅ Terkirim: <b>${success}</b>
+❌ Gagal: <b>${failed}</b>
+📊 Total: <b>${totalUsers}</b> user
+
+💬 <b>Caption:</b>
+${previewCaption}`;
+    }
+    return `📢 <b>Broadcasting Foto...</b>
+
+${progress}
+
+⏳ Proses: <b>${processed}</b>/<b>${totalUsers}</b>
+✅ Berhasil: <b>${success}</b>
+❌ Gagal: <b>${failed}</b>`;
+  };
+
+  const initialMsg = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: adminChatId,
+      text: getStatusText(),
+      parse_mode: "HTML"
+    })
+  });
+
+  const initialResult = await initialMsg.json() as any;
+  const statusMsgId = initialResult.result?.message_id;
+
+  const broadcastCaption = `📢 <b>Pengumuman</b>\n\n${formattedCaption}`;
+  const updateEvery = Math.max(1, Math.min(5, Math.floor(totalUsers / 3)));
+
+  for (const user of users.results as any[]) {
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: user.telegram_user_id,
+          photo: fileId,
+          caption: broadcastCaption,
+          parse_mode: "HTML"
+        })
+      });
+
+      if (response.ok) {
+        success++;
+      } else {
+        failed++;
+      }
+    } catch (e) {
+      failed++;
+    }
+
+    processed++;
+
+    if (statusMsgId && (processed % updateEvery === 0 || processed === totalUsers)) {
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: adminChatId,
+            message_id: statusMsgId,
             text: processed === totalUsers ? getStatusText(true) : getStatusText(),
             parse_mode: "HTML"
           })
