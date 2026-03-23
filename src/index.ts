@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import * as OTPAuth from "otpauth";
-import { extractEmailBody, extractLinks, parseFromHeader, stripHtml } from "./utils/email-parser";
-import { log, logError, entitiesToHtml } from "./utils/helpers";
+import { extractEmailBody, getSenderDisplayFromHeaders, parseFromHeader, stripHtml } from "./utils/email-parser";
+import { log, logError, entitiesToHtml, retryWithBackoff } from "./utils/helpers";
 import {
   handleRequestDomain,
   handleMyDomains,
@@ -407,8 +407,6 @@ app.post("/webhooks/telegram", async (c) => {
     const callbackQuery = payload.callback_query;
     const telegramUserId = String(callbackQuery.from.id);
     const telegramUsername = callbackQuery.from.username || "";
-    const chatId = callbackQuery.message.chat.id;
-    const messageId = callbackQuery.message.message_id;
     const callbackData = callbackQuery.data;
 
     try {
@@ -421,6 +419,14 @@ app.post("/webhooks/telegram", async (c) => {
         body: JSON.stringify({ callback_query_id: callbackQuery.id })
       });
 
+      if (!callbackQuery.message) {
+        console.error("Callback query missing message object:", JSON.stringify(callbackQuery));
+        return c.text("OK", 200);
+      }
+
+      const chatId = callbackQuery.message.chat.id;
+      const messageId = callbackQuery.message.message_id;
+
       // Process the callback - edit existing message instead of sending new one
       const result = await processCallback(c.env, telegramUserId, callbackData, chatId, messageId);
       if (result) {
@@ -432,13 +438,16 @@ app.post("/webhooks/telegram", async (c) => {
       }
     } catch (error) {
       console.error("Error processing callback:", error);
-      // Send error message to user
+      // Send error message to user when original message context is available
       try {
-        await sendTelegramMessage(
-          c.env.TELEGRAM_BOT_TOKEN,
-          chatId,
-          `❌ Maaf, terjadi kesalahan.\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}\n\nSilakan coba lagi atau contact @kakatiri`
-        );
+        const chatId = callbackQuery.message?.chat?.id;
+        if (typeof chatId === "number") {
+          await sendTelegramMessage(
+            c.env.TELEGRAM_BOT_TOKEN,
+            chatId,
+            `❌ Maaf, terjadi kesalahan.\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}\n\nSilakan coba lagi atau contact @kakatiri`
+          );
+        }
       } catch (e) {
         console.error("Failed to send error message:", e);
       }
@@ -620,6 +629,7 @@ async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
           if (botToken && env.ADMIN_USER_ID) {
             const msgId = inboxResult?.id || "";
             const catchAllBody = body ? escapeHtml(body.substring(0, 3000).trim()) : "";
+            const adminChatId = Number(env.ADMIN_USER_ID);
             const notificationText = `📨 <b>Email Baru (Catch-All)</b>
 
 📧 <b>Ke:</b> ${toAddress}
@@ -633,10 +643,14 @@ ${catchAllBody}${body && body.length > 3000 ? "\n\n<i>... (pesan terpotong)</i>"
                 { text: "📖 Baca Email", callback_data: `read:${msgId}` }
               ]]
             };
-            try {
-              await sendTelegramMessage(botToken, parseInt(env.ADMIN_USER_ID), notificationText, keyboard);
-            } catch (tgErr) {
-              console.error("Failed to send catch-all notification:", tgErr);
+            if (!Number.isFinite(adminChatId)) {
+              console.error("Invalid ADMIN_USER_ID for catch-all notification:", env.ADMIN_USER_ID);
+            } else {
+              try {
+                await sendTelegramMessage(botToken, adminChatId, notificationText, keyboard);
+              } catch (tgErr) {
+                console.error("Failed to send catch-all notification:", tgErr);
+              }
             }
           }
         }
@@ -655,7 +669,6 @@ ${catchAllBody}${body && body.length > 3000 ? "\n\n<i>... (pesan terpotong)</i>"
 
     const rawEmail = await new Response(message.raw).text();
     const body = extractEmailBody(rawEmail);
-    const links = extractLinks(rawEmail);
 
     let headersJson = "{}";
     try {
@@ -703,10 +716,15 @@ ${bodyPreview}${body && body.length > 3000 ? "\n\n<i>... (pesan terpotong)</i>" 
 
     const botToken = env.TELEGRAM_BOT_TOKEN;
     if (botToken) {
-      try {
-        await sendTelegramMessage(botToken, parseInt(email.telegram_user_id), notificationText, keyboard);
-      } catch (tgErr) {
-        console.error("Failed to send email notification:", tgErr);
+      const targetChatId = Number(email.telegram_user_id);
+      if (!Number.isFinite(targetChatId)) {
+        console.error("Invalid telegram_user_id for notification:", email.telegram_user_id);
+      } else {
+        try {
+          await sendTelegramMessage(botToken, targetChatId, notificationText, keyboard);
+        } catch (tgErr) {
+          console.error("Failed to send email notification:", tgErr);
+        }
       }
     }
   } catch (error) {
@@ -3018,7 +3036,7 @@ Contoh: <code>/read 5</code>`,
        WHERE i.id = ?`
     )
       .bind(parseInt(messageId))
-      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; local_part: string; received_at: string }>();
+      .first<{ id: number; sender: string; subject: string; body: string; headers?: string; email_address: string; local_part: string; received_at: string }>();
   } else {
     msg = await env.DB.prepare(
       `SELECT i.*, e.email_address, e.local_part FROM inbox i 
@@ -3026,7 +3044,7 @@ Contoh: <code>/read 5</code>`,
        WHERE i.id = ? AND e.user_id = ?`
     )
       .bind(parseInt(messageId), userId)
-      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; local_part: string; received_at: string }>();
+      .first<{ id: number; sender: string; subject: string; body: string; headers?: string; email_address: string; local_part: string; received_at: string }>();
   }
 
   if (!msg) {
@@ -3038,14 +3056,14 @@ Contoh: <code>/read 5</code>`,
 
   await env.DB.prepare("UPDATE inbox SET is_read = 1 WHERE id = ?").bind(parseInt(messageId)).run();
 
-  // Use enhanced stripHtml from email-parser (already imported)
+  const senderDisplay = getSenderDisplayFromHeaders(msg.sender, msg.headers);
   const body = stripHtml(msg.body || "(Tidak ada isi)").substring(0, 3000);
 
   return {
     text: `📧 <b>Email #${msg.id}</b>
 
 📬 <b>Ke:</b> ${msg.email_address}
-👤 <b>Dari:</b> ${msg.sender}
+👤 <b>Dari:</b> ${senderDisplay}
 📋 <b>Subjek:</b> ${msg.subject || "(Tanpa subjek)"}
 ⏰ <b>Waktu:</b> ${msg.received_at}
 
@@ -3376,7 +3394,7 @@ async function getOrCreateAdminUser(db: D1Database, adminTelegramId: string): Pr
   return result?.id || 0;
 }
 
-async function sendTelegramMessage(botToken: string, chatId: number, text: string, keyboard?: any) {
+async function sendTelegramMessage(botToken: string, chatId: number, text: string, keyboard?: any): Promise<boolean> {
   try {
     const body: any = {
       chat_id: chatId,
@@ -3392,11 +3410,15 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
       }
     }
     
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const response = await retryWithBackoff(
+      () => fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      3,
+      1000
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -3406,19 +3428,24 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
       if (errorText.includes("can't parse entities")) {
         body.parse_mode = undefined;
         body.text = text.replace(/<[^>]+>/g, '');
-        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        const fallbackResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+        return fallbackResponse.ok;
       }
+      return false;
     }
+
+    return true;
   } catch (error) {
     console.error("sendTelegramMessage error:", error);
+    return false;
   }
 }
 
-async function editTelegramMessage(botToken: string, chatId: number, messageId: number, text: string, keyboard?: any) {
+async function editTelegramMessage(botToken: string, chatId: number, messageId: number, text: string, keyboard?: any): Promise<boolean> {
   try {
     const body: any = {
       chat_id: chatId,
@@ -3435,20 +3462,28 @@ async function editTelegramMessage(botToken: string, chatId: number, messageId: 
       }
     }
     
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const response = await retryWithBackoff(
+      () => fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      3,
+      1000
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
       if (!errorText.includes("message is not modified")) {
         console.error("Telegram editMessage error:", errorText);
       }
+      return false;
     }
+
+    return true;
   } catch (error) {
     console.error("editTelegramMessage error:", error);
+    return false;
   }
 }
 

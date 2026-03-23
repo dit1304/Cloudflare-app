@@ -7,6 +7,7 @@ import { getDomains, validateEmailLocalPart, sanitizeLocalPart, isAdmin } from '
 import { getUserId, checkUserLimits, createEmail, getUserEmails, getUserLanguage } from '../services/database';
 import { t, getLang } from '../utils/translations';
 import { buildBackButton, buildMainMenuKeyboard } from '../utils/keyboards';
+import { getSenderDisplayFromHeaders, stripHtml } from '../utils/email-parser';
 
 /**
  * Handle /create command - Create new email
@@ -398,6 +399,7 @@ Contoh: <code>/read 5</code>`,
         sender: string;
         subject: string;
         body: string;
+        headers?: string;
         email_address: string;
         local_part: string;
         received_at: string;
@@ -414,6 +416,7 @@ Contoh: <code>/read 5</code>`,
         sender: string;
         subject: string;
         body: string;
+        headers?: string;
         email_address: string;
         local_part: string;
         received_at: string;
@@ -432,15 +435,14 @@ Contoh: <code>/read 5</code>`,
     .bind(parseInt(messageId))
     .run();
 
-  // Use enhanced email parser
-  const { stripHtml } = await import('../utils/email-parser');
+  const senderDisplay = getSenderDisplayFromHeaders(msg.sender, msg.headers);
   const body = stripHtml(msg.body || "(Tidak ada isi)").substring(0, 3000);
 
   return {
     text: `📧 <b>Email #${msg.id}</b>
 
 📬 <b>Ke:</b> ${msg.email_address}
-👤 <b>Dari:</b> ${msg.sender}
+👤 <b>Dari:</b> ${senderDisplay}
 📋 <b>Subjek:</b> ${msg.subject || "(Tanpa subjek)"}
 ⏰ <b>Waktu:</b> ${msg.received_at}
 
