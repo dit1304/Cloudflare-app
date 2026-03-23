@@ -547,3 +547,25 @@ export function parseFromHeader(fromHeader: string, rawFrom: string): string {
   
   return rawFrom;
 }
+
+/**
+ * Parse sender display name from stored inbox headers.
+ */
+export function getSenderDisplayFromHeaders(rawFrom: string, headers?: string | null): string {
+  if (!headers) {
+    return rawFrom;
+  }
+
+  try {
+    const parsedHeaders = JSON.parse(headers) as Record<string, unknown>;
+    const fromHeader = parsedHeaders.from;
+
+    if (typeof fromHeader === 'string' && fromHeader.trim().length > 0) {
+      return parseFromHeader(fromHeader, rawFrom);
+    }
+  } catch (error) {
+    console.error('Failed to parse stored email headers:', error);
+  }
+
+  return rawFrom;
+}

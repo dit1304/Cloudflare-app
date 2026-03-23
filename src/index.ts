@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import * as OTPAuth from "otpauth";
-import { extractEmailBody, parseFromHeader, stripHtml } from "./utils/email-parser";
+import { extractEmailBody, getSenderDisplayFromHeaders, parseFromHeader, stripHtml } from "./utils/email-parser";
 import { log, logError, entitiesToHtml, retryWithBackoff } from "./utils/helpers";
 import {
   handleRequestDomain,
@@ -3036,7 +3036,7 @@ Contoh: <code>/read 5</code>`,
        WHERE i.id = ?`
     )
       .bind(parseInt(messageId))
-      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; local_part: string; received_at: string }>();
+      .first<{ id: number; sender: string; subject: string; body: string; headers?: string; email_address: string; local_part: string; received_at: string }>();
   } else {
     msg = await env.DB.prepare(
       `SELECT i.*, e.email_address, e.local_part FROM inbox i 
@@ -3044,7 +3044,7 @@ Contoh: <code>/read 5</code>`,
        WHERE i.id = ? AND e.user_id = ?`
     )
       .bind(parseInt(messageId), userId)
-      .first<{ id: number; sender: string; subject: string; body: string; email_address: string; local_part: string; received_at: string }>();
+      .first<{ id: number; sender: string; subject: string; body: string; headers?: string; email_address: string; local_part: string; received_at: string }>();
   }
 
   if (!msg) {
@@ -3056,14 +3056,14 @@ Contoh: <code>/read 5</code>`,
 
   await env.DB.prepare("UPDATE inbox SET is_read = 1 WHERE id = ?").bind(parseInt(messageId)).run();
 
-  // Use enhanced stripHtml from email-parser (already imported)
+  const senderDisplay = getSenderDisplayFromHeaders(msg.sender, msg.headers);
   const body = stripHtml(msg.body || "(Tidak ada isi)").substring(0, 3000);
 
   return {
     text: `📧 <b>Email #${msg.id}</b>
 
 📬 <b>Ke:</b> ${msg.email_address}
-👤 <b>Dari:</b> ${msg.sender}
+👤 <b>Dari:</b> ${senderDisplay}
 📋 <b>Subjek:</b> ${msg.subject || "(Tanpa subjek)"}
 ⏰ <b>Waktu:</b> ${msg.received_at}
 
