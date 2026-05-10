@@ -2916,19 +2916,27 @@ Contoh: <code>/mails tokoku</code>
   if (identifier.includes("@")) {
     emailAddress = identifier.toLowerCase();
   } else {
-    const userId = await getUserId(env.DB, telegramUserId);
-    if (userId) {
-      const found = await env.DB.prepare(
-        "SELECT email_address FROM emails WHERE user_id = ? AND LOWER(email_address) LIKE ? AND is_active = 1"
-      ).bind(userId, `${identifier.toLowerCase()}@%`).first<{ email_address: string }>();
-      
-      if (found) {
-        emailAddress = found.email_address;
-      } else {
-        emailAddress = `${identifier.toLowerCase()}@${defaultDomain}`;
-      }
+    const localPart = identifier.toLowerCase();
+    let found: { email_address: string } | null = null;
+
+    if (isAdmin) {
+      // Admin: cari di seluruh emails (lintas user) berdasarkan local_part
+      found = await env.DB.prepare(
+        "SELECT email_address FROM emails WHERE LOWER(email_address) LIKE ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1"
+      ).bind(`${localPart}@%`).first<{ email_address: string }>();
     } else {
-      emailAddress = `${identifier.toLowerCase()}@${defaultDomain}`;
+      const userId = await getUserId(env.DB, telegramUserId);
+      if (userId) {
+        found = await env.DB.prepare(
+          "SELECT email_address FROM emails WHERE user_id = ? AND LOWER(email_address) LIKE ? AND is_active = 1"
+        ).bind(userId, `${localPart}@%`).first<{ email_address: string }>();
+      }
+    }
+
+    if (found) {
+      emailAddress = found.email_address;
+    } else {
+      emailAddress = `${localPart}@${defaultDomain}`;
     }
   }
 
@@ -3193,7 +3201,10 @@ Buat email baru dengan:
   for (let i = 0; i < Math.min(emails.length, 9); i += 3) {
     const row = emails.slice(i, i + 3).map((email: any) => ({
       text: `📬 ${email.local_part}${email.unread_count > 0 ? ` (${email.unread_count})` : ''}`,
-      callback_data: `mails:${email.local_part}`
+      // Admin dapat melihat email dari banyak user, jadi kirim full email_address
+      // supaya tidak salah resolve ke default domain. User biasa tetap aman karena
+      // lookup dibatasi ke user_id miliknya.
+      callback_data: `mails:${isAdminView ? email.email_address : email.local_part}`
     }));
     keyboard.push(row);
   }
