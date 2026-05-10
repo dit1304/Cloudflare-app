@@ -347,6 +347,10 @@ export function extractEmailBody(rawEmail: string): string {
     .replace(/Content-ID:[^\n]*/gi, '')
     .trim();
 
+  // Remove binary/signature Base64 blocks that aren't readable text
+  // These are typically DKIM signatures, S-MIME, or binary attachments
+  body = body.replace(/^[A-Za-z0-9+/]{40,}[=]{0,2}[\r\n]+(?:[A-Za-z0-9+/]{40,}[=]{0,2}[\r\n]*)+/gm, '');
+
   const base64Lines = body.match(/^[A-Za-z0-9+/\r\n]{50,}={0,2}$/m);
   if (base64Lines) {
     const base64Block = body.match(/([A-Za-z0-9+/\s]{100,}={0,2})/);
