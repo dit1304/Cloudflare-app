@@ -2071,26 +2071,52 @@ ${buildBroadcastProgressBar(0, totalUsers)}
     console.error("Failed to send initial broadcast status:", e);
   }
 
-  // Simpan job metadata
-  await env.DB.prepare(
-    `INSERT INTO broadcast_jobs (id, admin_chat_id, status_message_id, total_users)
-     VALUES (?, ?, ?, ?)`
-  ).bind(broadcastId, adminChatId, statusMessageId, totalUsers).run();
-
-  // Bulk insert target ke queue. D1 bind param limit 100 → batch per 50 baris.
-  const rows = users.results as any[];
-  const chunkSize = 50;
-  for (let i = 0; i < rows.length; i += chunkSize) {
-    const chunk = rows.slice(i, i + chunkSize);
-    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
-    const binds: any[] = [];
-    for (const r of chunk) {
-      binds.push(broadcastId, r.telegram_user_id, messageType, messageText, photoFileId);
-    }
+  // Simpan job metadata. Kalau tabel belum ada, lempar pesan error informatif.
+  try {
     await env.DB.prepare(
-      `INSERT INTO broadcast_queue (broadcast_id, target_chat_id, message_type, message_text, photo_file_id)
-       VALUES ${placeholders}`
-    ).bind(...binds).run();
+      `INSERT INTO broadcast_jobs (id, admin_chat_id, status_message_id, total_users)
+       VALUES (?, ?, ?, ?)`
+    ).bind(broadcastId, adminChatId, statusMessageId, totalUsers).run();
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    // Beritahu admin sebab error (umumnya: belum migrasi)
+    const hint = msg.includes("no such table")
+      ? `❌ Tabel broadcast belum dibuat di D1.\n\nJalankan migrasi dulu:\n<code>npm run db:migrate:broadcast</code>\n\nError asli:\n<code>${escapeHtml(msg).slice(0, 400)}</code>`
+      : `❌ Gagal membuat broadcast job.\n\n<code>${escapeHtml(msg).slice(0, 400)}</code>`;
+    await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, parseInt(adminChatId), hint);
+    return "";
+  }
+
+  // Bulk insert target ke queue.
+  // D1 bind parameter limit = 100 per statement. Kolom yang di-bind: 5.
+  // → max aman 20 row per INSERT. Pakai 15 untuk margin.
+  const rows = users.results as any[];
+  const chunkSize = 15;
+  try {
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
+      const binds: any[] = [];
+      for (const r of chunk) {
+        binds.push(broadcastId, r.telegram_user_id, messageType, messageText, photoFileId);
+      }
+      await env.DB.prepare(
+        `INSERT INTO broadcast_queue (broadcast_id, target_chat_id, message_type, message_text, photo_file_id)
+         VALUES ${placeholders}`
+      ).bind(...binds).run();
+    }
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    await sendTelegramMessage(
+      env.TELEGRAM_BOT_TOKEN,
+      parseInt(adminChatId),
+      `❌ Gagal memasukkan user ke queue.\n\n<code>${escapeHtml(msg).slice(0, 400)}</code>`
+    );
+    // Hapus job yang sudah dibuat supaya tidak menggantung
+    try {
+      await env.DB.prepare(`DELETE FROM broadcast_jobs WHERE id = ?`).bind(broadcastId).run();
+    } catch {}
+    return "";
   }
 
   return broadcastId;
