@@ -1988,20 +1988,30 @@ async function handleCleanup(env: Bindings): Promise<string> {
 📪 Alamat dihapus: <b>${emailCleanup.meta.changes}</b> (tidak terpakai > 30 hari)`;
 }
 
-async function handleBroadcast(env: Bindings, adminChatId: string, message: string, fullMessage?: string, entities?: any[]): Promise<string> {
-  if (!message || message.trim() === "") {
-    return `⚠️ <b>Format:</b> <code>/broadcast pesan</code>
+// ============ BROADCAST (QUEUE BASED) ============
+// Cloudflare Workers free plan: 50 subrequest per invocation.
+// Jika kirim langsung ke 90+ user, worker berhenti di sekitar user ke-40-50.
+// Solusi: enqueue semua target ke D1, lalu scheduled handler (cron */1)
+// memproses batch kecil per invocation sampai habis.
 
-Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
-  }
+// Max subrequest per invocation yang kita pakai untuk pemrosesan batch.
+// Sisakan budget untuk update progress + query DB (~ 8 subrequest).
+const BROADCAST_BATCH_SIZE = 25;
 
-  const users = await env.DB.prepare("SELECT telegram_user_id FROM users").all();
-  
-  if (!users.results || users.results.length === 0) {
-    return `❌ Tidak ada user terdaftar.`;
-  }
+function generateBroadcastId(): string {
+  // Random id 12 char (cukup unik untuk broadcast job)
+  return "bc_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+}
 
-  let formattedMessage: string;
+function buildBroadcastProgressBar(current: number, total: number): string {
+  if (total <= 0) return "░░░░░░░░░░ 0%";
+  const percentage = Math.round((current / total) * 100);
+  const filled = Math.round(percentage / 10);
+  const empty = 10 - filled;
+  return "▓".repeat(filled) + "░".repeat(empty) + ` ${percentage}%`;
+}
+
+function formatBroadcastText(message: string, fullMessage: string | undefined, entities: any[] | undefined): string {
   if (entities && entities.length > 0 && fullMessage) {
     const cmdMatch = fullMessage.match(/^\/(?:broadcast|bc)\s+/i);
     const cmdLen = cmdMatch ? cmdMatch[0].length : 0;
@@ -2015,233 +2025,268 @@ Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
       }))
       .filter((e: any) => e.length > 0);
 
-    formattedMessage = entitiesToHtml(message, msgEntities);
-  } else {
-    formattedMessage = escapeHtml(message);
+    return entitiesToHtml(message, msgEntities);
+  }
+  return escapeHtml(message);
+}
+
+async function enqueueBroadcast(
+  env: Bindings,
+  adminChatId: string,
+  messageType: 'text' | 'photo',
+  messageText: string,
+  photoFileId: string | null
+): Promise<string> {
+  const users = await env.DB.prepare("SELECT telegram_user_id FROM users").all();
+  if (!users.results || users.results.length === 0) {
+    return "";
   }
 
-  const botToken = env.TELEGRAM_BOT_TOKEN;
+  const broadcastId = generateBroadcastId();
   const totalUsers = users.results.length;
-  let success = 0;
-  let failed = 0;
-  let processed = 0;
 
-  const getProgressBar = (current: number, total: number): string => {
-    const percentage = Math.round((current / total) * 100);
-    const filled = Math.round(percentage / 10);
-    const empty = 10 - filled;
-    return "▓".repeat(filled) + "░".repeat(empty) + ` ${percentage}%`;
-  };
+  // Kirim status awal ke admin agar bisa di-edit progress-nya dari scheduled handler
+  let statusMessageId: number | null = null;
+  try {
+    const initialMsg = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: adminChatId,
+        text: `📢 <b>Broadcast diantrikan</b>
 
-  const previewMessage = formattedMessage.substring(0, 500);
+${buildBroadcastProgressBar(0, totalUsers)}
 
-  const getStatusText = (done: boolean = false): string => {
-    const progress = getProgressBar(processed, totalUsers);
-    if (done) {
-      return `📢 <b>Broadcast Selesai</b>
+⏳ Antri: <b>${totalUsers}</b> user
+✅ Terkirim: <b>0</b>
+❌ Gagal: <b>0</b>
 
-${progress}
-
-✅ Terkirim: <b>${success}</b>
-❌ Gagal: <b>${failed}</b>
-📊 Total: <b>${totalUsers}</b> user
-
-💬 <b>Pesan:</b>
-${previewMessage}`;
-    }
-    return `📢 <b>Broadcasting...</b>
-
-${progress}
-
-⏳ Proses: <b>${processed}</b>/<b>${totalUsers}</b>
-✅ Berhasil: <b>${success}</b>
-❌ Gagal: <b>${failed}</b>`;
-  };
-
-  const initialMsg = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: adminChatId,
-      text: getStatusText(),
-      parse_mode: "HTML"
-    })
-  });
-
-  const initialResult = await initialMsg.json() as any;
-  const messageId = initialResult.result?.message_id;
-
-  const broadcastText = `📢 <b>Pengumuman</b>\n\n${formattedMessage}`;
-  const updateEvery = Math.max(1, Math.min(5, Math.floor(totalUsers / 3)));
-
-  for (const user of users.results as any[]) {
-    try {
-      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: user.telegram_user_id,
-          text: broadcastText,
-          parse_mode: "HTML"
-        })
-      });
-      
-      if (response.ok) {
-        success++;
-      } else {
-        failed++;
-      }
-    } catch (e) {
-      failed++;
-    }
-    
-    processed++;
-
-    if (messageId && (processed % updateEvery === 0 || processed === totalUsers)) {
-      try {
-        await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: adminChatId,
-            message_id: messageId,
-            text: processed === totalUsers ? getStatusText(true) : getStatusText(),
-            parse_mode: "HTML"
-          })
-        });
-      } catch (e) {
-        // Ignore edit errors
-      }
-    }
+<i>Free plan Cloudflare Workers membatasi ${BROADCAST_BATCH_SIZE * 2} request per invocation. Pesan akan dikirim bertahap (~${BROADCAST_BATCH_SIZE} user / menit) oleh scheduled worker.</i>`,
+        parse_mode: "HTML"
+      })
+    });
+    const initialResult = await initialMsg.json() as any;
+    statusMessageId = initialResult.result?.message_id ?? null;
+  } catch (e) {
+    console.error("Failed to send initial broadcast status:", e);
   }
 
+  // Simpan job metadata
+  await env.DB.prepare(
+    `INSERT INTO broadcast_jobs (id, admin_chat_id, status_message_id, total_users)
+     VALUES (?, ?, ?, ?)`
+  ).bind(broadcastId, adminChatId, statusMessageId, totalUsers).run();
+
+  // Bulk insert target ke queue. D1 bind param limit 100 → batch per 50 baris.
+  const rows = users.results as any[];
+  const chunkSize = 50;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const binds: any[] = [];
+    for (const r of chunk) {
+      binds.push(broadcastId, r.telegram_user_id, messageType, messageText, photoFileId);
+    }
+    await env.DB.prepare(
+      `INSERT INTO broadcast_queue (broadcast_id, target_chat_id, message_type, message_text, photo_file_id)
+       VALUES ${placeholders}`
+    ).bind(...binds).run();
+  }
+
+  return broadcastId;
+}
+
+async function handleBroadcast(env: Bindings, adminChatId: string, message: string, fullMessage?: string, entities?: any[]): Promise<string> {
+  if (!message || message.trim() === "") {
+    return `⚠️ <b>Format:</b> <code>/broadcast pesan</code>
+
+Contoh: <code>/broadcast Bot akan maintenance jam 10 malam</code>`;
+  }
+
+  const users = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first<{ count: number }>();
+  if (!users || users.count === 0) {
+    return `❌ Tidak ada user terdaftar.`;
+  }
+
+  const formattedMessage = formatBroadcastText(message, fullMessage, entities);
+  const broadcastText = `📢 <b>Pengumuman</b>\n\n${formattedMessage}`;
+
+  const broadcastId = await enqueueBroadcast(env, adminChatId, 'text', broadcastText, null);
+  if (!broadcastId) {
+    return `❌ Tidak ada user terdaftar.`;
+  }
+
+  // Handler ini dipanggil dari processCommand lalu response string dikirim
+  // sebagai pesan biasa. Kita kembalikan string kosong karena status message
+  // sudah dikirim langsung di dalam enqueueBroadcast.
   return "";
 }
 
 async function handlePhotoBroadcast(env: Bindings, adminChatId: string, fileId: string, message: string, fullCaption?: string, captionEntities?: any[]): Promise<string> {
-  const users = await env.DB.prepare("SELECT telegram_user_id FROM users").all();
-
-  if (!users.results || users.results.length === 0) {
+  const users = await env.DB.prepare("SELECT COUNT(*) as count FROM users").first<{ count: number }>();
+  if (!users || users.count === 0) {
     await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, parseInt(adminChatId), "❌ Tidak ada user terdaftar.");
     return "";
   }
 
-  let formattedCaption: string;
-  if (captionEntities && captionEntities.length > 0 && fullCaption) {
-    const cmdMatch = fullCaption.match(/^\/(broadcast|bc)\s+/i);
-    const cmdLen = cmdMatch ? cmdMatch[0].length : 0;
-
-    const msgEntities = captionEntities
-      .filter((e: any) => e.offset + e.length > cmdLen)
-      .map((e: any) => ({
-        ...e,
-        offset: Math.max(0, e.offset - cmdLen),
-        length: e.offset < cmdLen ? e.length - (cmdLen - e.offset) : e.length
-      }))
-      .filter((e: any) => e.length > 0);
-
-    formattedCaption = entitiesToHtml(message, msgEntities);
-  } else {
-    formattedCaption = escapeHtml(message);
-  }
-
-  const botToken = env.TELEGRAM_BOT_TOKEN;
-  const totalUsers = users.results.length;
-  let success = 0;
-  let failed = 0;
-  let processed = 0;
-
-  const getProgressBar = (current: number, total: number): string => {
-    const percentage = Math.round((current / total) * 100);
-    const filled = Math.round(percentage / 10);
-    const empty = 10 - filled;
-    return "▓".repeat(filled) + "░".repeat(empty) + ` ${percentage}%`;
-  };
-
-  const previewCaption = formattedCaption.substring(0, 300);
-
-  const getStatusText = (done: boolean = false): string => {
-    const progress = getProgressBar(processed, totalUsers);
-    if (done) {
-      return `📢 <b>Broadcast Foto Selesai</b>
-
-${progress}
-
-✅ Terkirim: <b>${success}</b>
-❌ Gagal: <b>${failed}</b>
-📊 Total: <b>${totalUsers}</b> user
-
-💬 <b>Caption:</b>
-${previewCaption}`;
-    }
-    return `📢 <b>Broadcasting Foto...</b>
-
-${progress}
-
-⏳ Proses: <b>${processed}</b>/<b>${totalUsers}</b>
-✅ Berhasil: <b>${success}</b>
-❌ Gagal: <b>${failed}</b>`;
-  };
-
-  const initialMsg = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: adminChatId,
-      text: getStatusText(),
-      parse_mode: "HTML"
-    })
-  });
-
-  const initialResult = await initialMsg.json() as any;
-  const statusMsgId = initialResult.result?.message_id;
-
+  const formattedCaption = formatBroadcastText(message, fullCaption, captionEntities);
   const broadcastCaption = `📢 <b>Pengumuman</b>\n\n${formattedCaption}`;
-  const updateEvery = Math.max(1, Math.min(5, Math.floor(totalUsers / 3)));
 
-  for (const user of users.results as any[]) {
+  await enqueueBroadcast(env, adminChatId, 'photo', broadcastCaption, fileId);
+  return "";
+}
+
+/**
+ * Proses satu batch dari broadcast_queue. Dipanggil oleh scheduled handler.
+ * Batas subrequest per invocation = 50, jadi total request di sini kita jaga
+ * dibawah limit: BROADCAST_BATCH_SIZE * 1 (send) + beberapa untuk DB + edit status.
+ */
+async function processBroadcastBatch(env: Bindings): Promise<void> {
+  const botToken = env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) return;
+
+  // Ambil batch pending
+  const pending = await env.DB.prepare(
+    `SELECT id, broadcast_id, target_chat_id, message_type, message_text, photo_file_id
+     FROM broadcast_queue
+     WHERE status = 'pending'
+     ORDER BY id ASC
+     LIMIT ?`
+  ).bind(BROADCAST_BATCH_SIZE).all();
+
+  const items = (pending.results || []) as any[];
+  if (items.length === 0) return;
+
+  // Group per broadcast_id untuk update progress sekali di akhir batch
+  const affectedJobs = new Set<string>();
+  let successThisBatch = 0;
+  let failedThisBatch = 0;
+  const successIds: number[] = [];
+  const failedItems: { id: number; error: string }[] = [];
+
+  for (const item of items) {
+    affectedJobs.add(item.broadcast_id);
     try {
-      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+      const endpoint = item.message_type === 'photo' ? 'sendPhoto' : 'sendMessage';
+      const body: any = {
+        chat_id: item.target_chat_id,
+        parse_mode: "HTML",
+      };
+      if (item.message_type === 'photo') {
+        body.photo = item.photo_file_id;
+        body.caption = item.message_text;
+      } else {
+        body.text = item.message_text;
+      }
+
+      const resp = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: user.telegram_user_id,
-          photo: fileId,
-          caption: broadcastCaption,
-          parse_mode: "HTML"
-        })
+        body: JSON.stringify(body),
       });
 
-      if (response.ok) {
-        success++;
+      if (resp.ok) {
+        successThisBatch++;
+        successIds.push(item.id);
       } else {
-        failed++;
+        const errText = await resp.text().catch(() => "");
+        failedThisBatch++;
+        failedItems.push({ id: item.id, error: errText.slice(0, 200) });
       }
-    } catch (e) {
-      failed++;
+    } catch (e: any) {
+      failedThisBatch++;
+      failedItems.push({ id: item.id, error: String(e?.message || e).slice(0, 200) });
     }
+  }
 
-    processed++;
+  // Update status queue (pakai 2 query: sukses & gagal) supaya hemat subrequest
+  if (successIds.length > 0) {
+    const placeholders = successIds.map(() => "?").join(",");
+    await env.DB.prepare(
+      `UPDATE broadcast_queue SET status = 'sent', sent_at = datetime('now'), attempts = attempts + 1
+       WHERE id IN (${placeholders})`
+    ).bind(...successIds).run();
+  }
+  if (failedItems.length > 0) {
+    // Tandai sebagai failed (free plan tidak kita retry agar hemat subrequest)
+    const placeholders = failedItems.map(() => "?").join(",");
+    await env.DB.prepare(
+      `UPDATE broadcast_queue SET status = 'failed', attempts = attempts + 1,
+         error_message = substr(COALESCE(error_message, '') || ?, 1, 500)
+       WHERE id IN (${placeholders})`
+    )
+      .bind(failedItems[0].error || "failed", ...failedItems.map(f => f.id))
+      .run();
+  }
 
-    if (statusMsgId && (processed % updateEvery === 0 || processed === totalUsers)) {
+  // Update counter tiap job & edit status message di Telegram
+  for (const jobId of affectedJobs) {
+    await env.DB.prepare(
+      `UPDATE broadcast_jobs
+       SET success_count = (SELECT COUNT(*) FROM broadcast_queue WHERE broadcast_id = ? AND status = 'sent'),
+           failed_count  = (SELECT COUNT(*) FROM broadcast_queue WHERE broadcast_id = ? AND status = 'failed')
+       WHERE id = ?`
+    ).bind(jobId, jobId, jobId).run();
+
+    const job = await env.DB.prepare(
+      `SELECT id, admin_chat_id, status_message_id, total_users, success_count, failed_count, completed_at
+       FROM broadcast_jobs WHERE id = ?`
+    ).bind(jobId).first<any>();
+    if (!job) continue;
+
+    const remaining = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM broadcast_queue WHERE broadcast_id = ? AND status = 'pending'`
+    ).bind(jobId).first<{ count: number }>();
+
+    const done = (remaining?.count || 0) === 0;
+    const processed = (job.success_count || 0) + (job.failed_count || 0);
+    const progress = buildBroadcastProgressBar(processed, job.total_users);
+
+    const text = done
+      ? `📢 <b>Broadcast Selesai</b>
+
+${progress}
+
+✅ Terkirim: <b>${job.success_count}</b>
+❌ Gagal: <b>${job.failed_count}</b>
+📊 Total: <b>${job.total_users}</b> user`
+      : `📢 <b>Broadcasting...</b>
+
+${progress}
+
+⏳ Proses: <b>${processed}</b>/<b>${job.total_users}</b>
+✅ Berhasil: <b>${job.success_count}</b>
+❌ Gagal: <b>${job.failed_count}</b>
+
+<i>Batch berikutnya ~1 menit lagi.</i>`;
+
+    if (job.status_message_id) {
       try {
         await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            chat_id: adminChatId,
-            message_id: statusMsgId,
-            text: processed === totalUsers ? getStatusText(true) : getStatusText(),
+            chat_id: job.admin_chat_id,
+            message_id: job.status_message_id,
+            text,
             parse_mode: "HTML"
           })
         });
       } catch (e) {
-        // Ignore edit errors
+        // abaikan; status message mungkin dihapus admin
       }
     }
-  }
 
-  return "";
+    if (done && !job.completed_at) {
+      await env.DB.prepare(
+        `UPDATE broadcast_jobs SET completed_at = datetime('now') WHERE id = ?`
+      ).bind(jobId).run();
+      // Bersihkan item queue yang sudah terkirim / failed untuk broadcast ini
+      await env.DB.prepare(
+        `DELETE FROM broadcast_queue WHERE broadcast_id = ?`
+      ).bind(jobId).run();
+    }
+  }
 }
 
 // ============ SETTINGS HANDLER ============
@@ -2985,6 +3030,7 @@ Belum ada email masuk. Gunakan alamat di atas untuk menerima email.`,
       keyboard: {
         inline_keyboard: [
           [{ text: "🔄 Refresh", callback_data: `mails:${emailAddress.split("@")[0]}` }],
+          [{ text: "📋 Daftar Email", callback_data: "action:list" }],
           [{ text: t(lang, "back_to_menu"), callback_data: "menu:email" }]
         ]
       }
@@ -3021,7 +3067,8 @@ Belum ada email masuk. Gunakan alamat di atas untuk menerima email.`,
 
   const localPart = email.email_address.split("@")[0];
   keyboard.push([
-    { text: "🔄 Refresh", callback_data: `mails:${localPart}` }
+    { text: "🔄 Refresh", callback_data: `mails:${localPart}` },
+    { text: "📋 Daftar Email", callback_data: "action:list" }
   ]);
   keyboard.push([
     { text: t(lang, "back_to_menu"), callback_data: "menu:email" }
@@ -3096,7 +3143,8 @@ ${body}`,
     keyboard: {
       inline_keyboard: [
         [
-          { text: "📬 Kembali ke Inbox", callback_data: `mails:${msg.local_part}` }
+          { text: "📬 Kembali ke Inbox", callback_data: `mails:${msg.local_part}` },
+          { text: "📋 Daftar Email", callback_data: "action:list" }
         ],
         [
           { text: t(lang, "back_to_menu"), callback_data: "menu:email" }
@@ -3540,4 +3588,11 @@ async function editTelegramMessage(botToken: string, chatId: number, messageId: 
 export default {
   fetch: app.fetch,
   email: handleEmail,
+  // Cron trigger: proses antrian broadcast batch demi batch.
+  // Dipasang via wrangler.toml: [triggers] crons = ["*/1 * * * *"]
+  async scheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext) {
+    ctx.waitUntil(processBroadcastBatch(env).catch(err => {
+      console.error("scheduled broadcast batch error:", err);
+    }));
+  },
 };

@@ -84,3 +84,33 @@ CREATE INDEX IF NOT EXISTS idx_blacklist_user_id ON blacklist(user_id);
 CREATE INDEX IF NOT EXISTS idx_custom_domains_user ON custom_domains(user_id);
 CREATE INDEX IF NOT EXISTS idx_custom_domains_status ON custom_domains(status);
 CREATE INDEX IF NOT EXISTS idx_custom_domains_domain ON custom_domains(domain);
+
+-- Broadcast queue (free plan: 50 subrequest/invocation -> pakai queue + cron)
+CREATE TABLE IF NOT EXISTS broadcast_jobs (
+    id TEXT PRIMARY KEY,
+    admin_chat_id TEXT NOT NULL,
+    status_message_id INTEGER,
+    total_users INTEGER DEFAULT 0,
+    success_count INTEGER DEFAULT 0,
+    failed_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS broadcast_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    broadcast_id TEXT NOT NULL,
+    target_chat_id TEXT NOT NULL,
+    message_type TEXT NOT NULL DEFAULT 'text',
+    message_text TEXT NOT NULL,
+    photo_file_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER DEFAULT 0,
+    error_message TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    sent_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_bq_status ON broadcast_queue(status);
+CREATE INDEX IF NOT EXISTS idx_bq_broadcast_id ON broadcast_queue(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_bj_completed ON broadcast_jobs(completed_at);

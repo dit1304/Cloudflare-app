@@ -25,5 +25,11 @@ binding = "DB"
 database_name = "temp-email-db"
 database_id = "fc2573ff-11f7-478f-a67e-591d6fc853c8"
 
+# Cron Trigger untuk memproses broadcast queue secara bertahap.
+# Free plan Cloudflare Workers: 50 subrequest per invocation, jadi broadcast
+# ke banyak user dipecah batch demi batch (lihat scheduled handler di src/index.ts).
+[triggers]
+crons = ["*/1 * * * *"]
+
 # Secrets (sensitive data - use wrangler secret put)
 # TELEGRAM_BOT_TOKEN - Set with: npx wrangler secret put TELEGRAM_BOT_TOKEN
