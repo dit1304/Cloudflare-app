@@ -432,8 +432,8 @@ app.post("/webhooks/telegram", async (c) => {
       if (result) {
         if (typeof result === 'object' && result.text) {
           await editTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, messageId, result.text, result.keyboard);
-        } else {
-          await editTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, messageId, result as string);
+        } else if (typeof result === 'string' && result.length > 0) {
+          await editTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, messageId, result);
         }
       }
     } catch (error) {
@@ -511,7 +511,7 @@ app.post("/webhooks/telegram", async (c) => {
     const response = await processCommand(c.env, telegramUserId, userMessage, messageEntities);
     if (typeof response === "object" && response.text) {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, response.text, response.keyboard);
-    } else {
+    } else if (response && (response as string).length > 0) {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, chatId, response as string);
     }
   } catch (error) {
@@ -2247,6 +2247,9 @@ ${progress}
 // ============ SETTINGS HANDLER ============
 async function handleSettings(env: Bindings, telegramUserId: string, arg: string): Promise<CommandResponse> {
   const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    return { text: `❌ Error: User tidak ditemukan.\n\nKetik /start untuk register.` };
+  }
   
   const user = await env.DB.prepare(
     "SELECT auto_delete_days, language, timezone FROM users WHERE id = ?"
@@ -2487,6 +2490,9 @@ async function handleUsers(env: Bindings, arg: string): Promise<string> {
 // ============ MY STATS HANDLER ============
 async function handleMyStats(env: Bindings, telegramUserId: string): Promise<string> {
   const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    return `❌ Error: User tidak ditemukan.\n\nKetik /start untuk register.`;
+  }
 
   const user = await env.DB.prepare(
     "SELECT telegram_username, auto_delete_days, created_at FROM users WHERE id = ?"
@@ -2593,6 +2599,9 @@ Ini akan generate QR code untuk secret tersimpan.`;
   }
 
   const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    return `❌ Error: User tidak ditemukan.\n\nKetik /start untuk register.`;
+  }
   const name = arg.toLowerCase().trim();
 
   const result = await env.DB.prepare(
@@ -2609,16 +2618,20 @@ Ini akan generate QR code untuk secret tersimpan.`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(otpauthUri)}`;
 
   try {
-    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: telegramUserId,
+        chat_id: parseInt(telegramUserId),
         photo: qrUrl,
         caption: `🔳 QR Code untuk: ${name}\n\n📱 Scan dengan app authenticator\n\n🔗 Manual entry:\n${result.secret}\n\n⚠️ Jangan bagikan QR ini!`,
         parse_mode: "HTML"
       })
     });
+
+    if (!response.ok) {
+      throw new Error(`Telegram API error: ${response.status}`);
+    }
   } catch (e) {
     console.error("Failed to send QR photo:", e);
     return `🔳 <b>QR Code untuk: ${name}</b>
@@ -2631,7 +2644,10 @@ Ini akan generate QR code untuk secret tersimpan.`;
 ⚠️ Jangan bagikan!`;
   }
 
-  return "";
+  // Return a confirmation message instead of empty string
+  return `🔳 QR Code untuk <b>${name}</b> telah dikirim di atas! 👆
+
+📱 Scan dengan app authenticator (Google Authenticator, Authy, dll)`;
 }
 
 async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolean, telegramUserId: string): Promise<CommandResponse> {
@@ -3240,9 +3256,11 @@ Contoh: <code>/delete tokoku</code>`;
     return `❌ Error: User tidak ditemukan.`;
   }
 
+  const domains = getDomains(env);
+  const defaultDomain = domains[0] || "example.com";
   const emailAddress = identifier.includes("@")
     ? identifier.toLowerCase()
-    : `${identifier.toLowerCase()}@${env.TEMP_EMAIL_DOMAIN}`;
+    : `${identifier.toLowerCase()}@${defaultDomain}`;
 
   const email = await env.DB.prepare(
     "SELECT id FROM emails WHERE user_id = ? AND LOWER(email_address) = ?"
@@ -3394,11 +3412,21 @@ async function getOrCreateAdminUser(db: D1Database, adminTelegramId: string): Pr
   return result?.id || 0;
 }
 
+/**
+ * Truncate message text to Telegram's 4096 character limit
+ */
+function truncateMessage(text: string, maxLength: number = 4096): string {
+  if (text.length <= maxLength) return text;
+  const truncatedSuffix = "\n\n<i>... (pesan terpotong, terlalu panjang)</i>";
+  return text.substring(0, maxLength - truncatedSuffix.length) + truncatedSuffix;
+}
+
 async function sendTelegramMessage(botToken: string, chatId: number, text: string, keyboard?: any): Promise<boolean> {
   try {
+    const truncatedText = truncateMessage(text);
     const body: any = {
       chat_id: chatId,
-      text: text,
+      text: truncatedText,
       parse_mode: "HTML",
     };
     
@@ -3427,7 +3455,7 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
       // If HTML parsing fails, retry without parse_mode
       if (errorText.includes("can't parse entities")) {
         body.parse_mode = undefined;
-        body.text = text.replace(/<[^>]+>/g, '');
+        body.text = truncatedText.replace(/<[^>]+>/g, '');
         const fallbackResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3447,10 +3475,11 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
 
 async function editTelegramMessage(botToken: string, chatId: number, messageId: number, text: string, keyboard?: any): Promise<boolean> {
   try {
+    const truncatedText = truncateMessage(text);
     const body: any = {
       chat_id: chatId,
       message_id: messageId,
-      text: text,
+      text: truncatedText,
       parse_mode: "HTML",
     };
     
