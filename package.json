@@ -7,7 +7,8 @@
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create temp-email-db",
     "db:migrate": "wrangler d1 execute temp-email-db --file=./src/db/schema.sql",
-    "db:migrate:prod": "wrangler d1 execute temp-email-db --file=./src/db/schema.sql --remote"
+    "db:migrate:prod": "wrangler d1 execute temp-email-db --file=./src/db/schema.sql --remote",
+    "db:migrate:broadcast": "wrangler d1 execute temp-email-db --file=./src/db/migrations/add_broadcast_queue.sql --remote"
   },
   "dependencies": {
     "hono": "^4.0.0",
