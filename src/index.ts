@@ -21,14 +21,101 @@ import {
 } from "./handlers/admin-domain-handlers";
 import { getDomainById, getDomainByName } from "./services/custom-domains";
 
+// ==================== PATCH 1: BINDINGS + RATE LIMITER ====================
+// Tambah di type Bindings (di paling atas file, ganti blok yang ada):
+
 type Bindings = {
   DB: D1Database;
+  KV?: KVNamespace;                 // <-- BARU: buat rate limit (opsional)
   TELEGRAM_BOT_TOKEN: string;
+  TELEGRAM_WEBHOOK_SECRET: string;  // <-- BARU: wajib, buat verifikasi webhook
   TEMP_EMAIL_DOMAIN: string;
   ADMIN_USER_ID: string;
   FALLBACK_EMAIL: string;
   WORKER_URL?: string;
 };
+
+// ==================== PATCH 2: RATE LIMITER (KV-based) ====================
+// Taruh dekat helper lain (misal setelah `function getLang`).
+
+const RATE_WINDOW_SECONDS = 10;   // jendela geser 10 detik
+const RATE_MAX_REQUESTS = 20;      // max 20 request per user per jendela
+
+async function isRateLimited(
+  env: Bindings,
+  telegramUserId: string
+): Promise<boolean> {
+  // Tanpa KV binding, rate limiter nonaktif (fail-open, gak bikin bot mati).
+  if (!env.KV) return false;
+
+  const key = `rl:${telegramUserId}`;
+  const now = Math.floor(Date.now() / 1000);
+
+  try {
+    const hit = await env.KV.get<{ count: number; start: number }>(key, "json");
+    // Window lama habis -> reset
+    if (!hit || now - hit.start >= RATE_WINDOW_SECONDS) {
+      await env.KV.put(key, JSON.stringify({ count: 1, start: now }), {
+        expirationTtl: RATE_WINDOW_SECONDS,
+      });
+      return false;
+    }
+
+    const count = hit.count + 1;
+    if (count > RATE_MAX_REQUESTS) return true;
+
+    await env.KV.put(key, JSON.stringify({ count, start: hit.start }), {
+      expirationTtl: RATE_WINDOW_SECONDS - (now - hit.start),
+    });
+    return false;
+  } catch (e) {
+    // KV error -> jangan blokir user. Logging doang, lanjut.
+    console.error("Rate limiter KV error:", e);
+    return false;
+  }
+}
+
+// ==================== PATCH 3: VERIFIKASI WEBHOOK ====================
+// Di awal handler `app.post("/webhooks/telegram", async (c) => {`
+// SEBELUM baris `const payload = await c.req.json();` sisipkan ini:
+
+app.post("/webhooks/telegram", async (c) => {
+  // Verifikasi secret token dari Telegram. Tanpa ini, siapa pun yang tau URL
+  // worker bisa memalsukan pesan (termasuk impersonate admin).
+  const secret = c.req.header("X-Telegram-Bot-Api-Secret-Token");
+  if (!c.env.TELEGRAM_WEBHOOK_SECRET || secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
+    console.warn("🚫 Webhook ditolak: secret token tidak valid / kosong");
+    return c.text("Unauthorized", 401);
+  }
+
+  const payload = await c.req.json();
+  // ... sisa handler gak berubah
+
+  // ==================== PATCH 4: RATE LIMIT di command handler ====================
+  // Di dalam blok yang nge-handle `callback_query`, sebelum `ensureUser`,
+  // tambah cek rate limit. Begitu juga di handler text message.
+  // Contoh penempatan (di bagian callback):
+
+  if (payload.callback_query) {
+    const callbackQuery = payload.callback_query;
+    const telegramUserId = String(callbackQuery.from.id);
+
+    // <-- BARU: cek rate limit sebelum proses apa pun
+    if (await isRateLimited(c.env, telegramUserId)) {
+      console.warn(`Rate limited: ${telegramUserId}`);
+      return c.text("OK", 200); // diam buat client, gak kasih tau penyerang
+    }
+    // ... lanjut handle callback
+  }
+
+  // Dan di bagian text message, setelah `const telegramUserId = ...`:
+  const telegramUserId = String(payload.message.from.id);
+  // <-- BARU
+  if (await isRateLimited(c.env, telegramUserId)) {
+    console.warn(`Rate limited: ${telegramUserId}`);
+    return c.text("OK", 200);
+  }
+
 
 type Language = "id" | "en";
 
