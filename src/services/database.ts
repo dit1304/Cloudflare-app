@@ -291,7 +291,7 @@ export async function getUserEmails(
       .bind(userId)
       .all();
 
-    return (result.results as Email[]) || [];
+    return (result.results as unknown as Email[]) || [];
   } catch (error) {
     logError('getUserEmails error', error);
     return [];

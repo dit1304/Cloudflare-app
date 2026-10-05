@@ -21,22 +21,16 @@ import {
 } from "./handlers/admin-domain-handlers";
 import { getDomainById, getDomainByName } from "./services/custom-domains";
 
-// ==================== PATCH 1: BINDINGS + RATE LIMITER ====================
-// Tambah di type Bindings (di paling atas file, ganti blok yang ada):
-
 type Bindings = {
   DB: D1Database;
-  KV?: KVNamespace;                 // <-- BARU: buat rate limit (opsional)
+  KV?: KVNamespace;                 // buat rate limit (opsional)
   TELEGRAM_BOT_TOKEN: string;
-  TELEGRAM_WEBHOOK_SECRET: string;  // <-- BARU: wajib, buat verifikasi webhook
+  TELEGRAM_WEBHOOK_SECRET: string;  // wajib, buat verifikasi webhook
   TEMP_EMAIL_DOMAIN: string;
   ADMIN_USER_ID: string;
   FALLBACK_EMAIL: string;
   WORKER_URL?: string;
 };
-
-// ==================== PATCH 2: RATE LIMITER (KV-based) ====================
-// Taruh dekat helper lain (misal setelah `function getLang`).
 
 const RATE_WINDOW_SECONDS = 10;   // jendela geser 10 detik
 const RATE_MAX_REQUESTS = 20;      // max 20 request per user per jendela
@@ -74,48 +68,6 @@ async function isRateLimited(
     return false;
   }
 }
-
-// ==================== PATCH 3: VERIFIKASI WEBHOOK ====================
-// Di awal handler `app.post("/webhooks/telegram", async (c) => {`
-// SEBELUM baris `const payload = await c.req.json();` sisipkan ini:
-
-app.post("/webhooks/telegram", async (c) => {
-  // Verifikasi secret token dari Telegram. Tanpa ini, siapa pun yang tau URL
-  // worker bisa memalsukan pesan (termasuk impersonate admin).
-  const secret = c.req.header("X-Telegram-Bot-Api-Secret-Token");
-  if (!c.env.TELEGRAM_WEBHOOK_SECRET || secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
-    console.warn("🚫 Webhook ditolak: secret token tidak valid / kosong");
-    return c.text("Unauthorized", 401);
-  }
-
-  const payload = await c.req.json();
-  // ... sisa handler gak berubah
-
-  // ==================== PATCH 4: RATE LIMIT di command handler ====================
-  // Di dalam blok yang nge-handle `callback_query`, sebelum `ensureUser`,
-  // tambah cek rate limit. Begitu juga di handler text message.
-  // Contoh penempatan (di bagian callback):
-
-  if (payload.callback_query) {
-    const callbackQuery = payload.callback_query;
-    const telegramUserId = String(callbackQuery.from.id);
-
-    // <-- BARU: cek rate limit sebelum proses apa pun
-    if (await isRateLimited(c.env, telegramUserId)) {
-      console.warn(`Rate limited: ${telegramUserId}`);
-      return c.text("OK", 200); // diam buat client, gak kasih tau penyerang
-    }
-    // ... lanjut handle callback
-  }
-
-  // Dan di bagian text message, setelah `const telegramUserId = ...`:
-  const telegramUserId = String(payload.message.from.id);
-  // <-- BARU
-  if (await isRateLimited(c.env, telegramUserId)) {
-    console.warn(`Rate limited: ${telegramUserId}`);
-    return c.text("OK", 200);
-  }
-
 
 type Language = "id" | "en";
 
@@ -486,6 +438,14 @@ app.get("/", (c) => {
 
 // ============ TELEGRAM WEBHOOK ============
 app.post("/webhooks/telegram", async (c) => {
+  // Verifikasi secret token dari Telegram. Tanpa ini, siapa pun yang tau URL
+  // worker bisa memalsukan pesan (termasuk impersonate admin).
+  const secret = c.req.header("X-Telegram-Bot-Api-Secret-Token");
+  if (!c.env.TELEGRAM_WEBHOOK_SECRET || secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
+    console.warn("🚫 Webhook ditolak: secret token tidak valid / kosong");
+    return c.text("Unauthorized", 401);
+  }
+
   const payload = await c.req.json();
   console.log("📨 Telegram webhook received:", JSON.stringify(payload));
 
@@ -493,6 +453,13 @@ app.post("/webhooks/telegram", async (c) => {
   if (payload.callback_query) {
     const callbackQuery = payload.callback_query;
     const telegramUserId = String(callbackQuery.from.id);
+
+    // cek rate limit sebelum proses apa pun
+    if (await isRateLimited(c.env, telegramUserId)) {
+      console.warn(`Rate limited: ${telegramUserId}`);
+      return c.text("OK", 200);
+    }
+
     const telegramUsername = callbackQuery.from.username || "";
     const callbackData = callbackQuery.data;
 
@@ -588,6 +555,13 @@ app.post("/webhooks/telegram", async (c) => {
   }
 
   const telegramUserId = String(payload.message.from.id);
+
+  // cek rate limit sebelum proses apa pun
+  if (await isRateLimited(c.env, telegramUserId)) {
+    console.warn(`Rate limited: ${telegramUserId}`);
+    return c.text("OK", 200);
+  }
+
   const telegramUsername = payload.message.from.username || "";
   const chatId = payload.message.chat.id;
   const userMessage = payload.message.text.trim();
