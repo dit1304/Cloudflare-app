@@ -438,11 +438,13 @@ app.get("/", (c) => {
 
 // ============ TELEGRAM WEBHOOK ============
 app.post("/webhooks/telegram", async (c) => {
-  // Verifikasi secret token dari Telegram. Tanpa ini, siapa pun yang tau URL
-  // worker bisa memalsukan pesan (termasuk impersonate admin).
+  // Verifikasi secret token dari Telegram (opsional).
+  // Kalau TELEGRAM_WEBHOOK_SECRET di-set, request tanpa header secret yang cocok ditolak.
+  // Kalau tidak di-set, verifikasi dilewati — tapi siapa pun yang tau URL worker
+  // bisa memalsukan pesan (termasuk impersonate admin).
   const secret = c.req.header("X-Telegram-Bot-Api-Secret-Token");
-  if (!c.env.TELEGRAM_WEBHOOK_SECRET || secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
-    console.warn("🚫 Webhook ditolak: secret token tidak valid / kosong");
+  if (c.env.TELEGRAM_WEBHOOK_SECRET && secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
+    console.warn("🚫 Webhook ditolak: secret token tidak valid");
     return c.text("Unauthorized", 401);
   }
 
