@@ -34,6 +34,7 @@ type Bindings = {
   ADMIN_USER_ID: string;
   FALLBACK_EMAIL: string;
   WORKER_URL?: string;
+  PUBLIC_BASE_URL?: string;
 };
 
 const RATE_WINDOW_SECONDS = 10;   // jendela geser 10 detik
@@ -613,6 +614,11 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+/** Base URL publik untuk contoh API (domain, bukan link workers.dev). */
+function getPublicBaseUrl(env: Bindings): string {
+  return env.PUBLIC_BASE_URL || "https://temp.zsecret.me";
 }
 
 async function handleEmail(message: ForwardableEmailMessage, env: Bindings) {
@@ -1894,7 +1900,7 @@ async function handleApiKey(env: Bindings, telegramUserId: string, arg: string):
 🆔 ID: ${id} (untuk revoke: <code>/apikey revoke ${id}</code>)
 
 Cara pakai:
-<code>curl -H "X-API-Key: ${key}" ${env.WORKER_URL ? `https://${env.WORKER_URL}` : "<worker-url>"}/api/v1/addresses</code>`;
+<code>curl -H "X-API-Key: ${key}" ${getPublicBaseUrl(env)}/api/v1/addresses</code>`;
     } catch (e) {
       return `❌ Gagal membuat API key. Coba lagi.`;
     }
