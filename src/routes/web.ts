@@ -199,12 +199,12 @@ async function loadInbox(){
       var div = document.createElement('div');
       div.className = 'msg' + (m.is_read ? '' : ' unreadmsg');
       div.innerHTML = '<div class="s">' + esc(m.sender) + ' • ' + esc(m.received_at || '') + '</div><div class="t">' + esc(m.subject || '(tanpa subjek)') + '</div>';
-      div.onclick = function(){ readMsg(m.id); };
+      div.onclick = function(){ readMsg(m.id, div); };
       list.appendChild(div);
     });
   }catch(e){ showErr('inboxErr', e.message); }
 }
-async function readMsg(id){
+async function readMsg(id, el){
   try{
     var m = await api('/messages/' + id);
     var d = document.getElementById('msgDetail');
@@ -213,7 +213,8 @@ async function readMsg(id){
       '<div class="s muted">Waktu: ' + esc(m.received_at || '') + '</div>' +
       '<div style="font-weight:700;margin:6px 0">' + esc(m.subject || '(tanpa subjek)') + '</div>' +
       '<pre>' + esc(m.body || '(kosong)') + '</pre></div>';
-    loadInbox();
+    if(el && el.classList) el.classList.remove('unreadmsg');
+    d.scrollIntoView();
   }catch(e){ showErr('inboxErr', e.message); }
 }
 document.getElementById('saveKey').onclick = function(){
