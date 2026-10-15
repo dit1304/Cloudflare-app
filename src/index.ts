@@ -862,7 +862,9 @@ Please select your preferred language.`,
       return {
         text: `${t(lang, "menu_title")}
 
-${t(lang, "menu_desc")}`,
+${t(lang, "menu_desc")}
+
+🌐 <b>Web:</b> https://temp.zsecret.me`,
         keyboard: buildMainMenuKeyboard(lang, isAdmin)
       };
     
@@ -2937,55 +2939,59 @@ Ini akan generate QR code untuk secret tersimpan.`;
 
 async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolean, telegramUserId: string): Promise<CommandResponse> {
   const lang = getLang(await getUserLanguage(db, telegramUserId));
-  const defaultDomain = domains[0] || "example.com";
-  const or = lang === "id" ? "atau" : "or";
-  const multiDomainInfo = domains.length > 1 
-    ? `\n<b>/domains</b> - ${t(lang, "domains_desc")}` 
-    : "";
-  
-  let message = `${t(lang, "welcome_title")}
+  const id = lang === 'id';
 
-${t(lang, "welcome_desc")}
+  const title = id ? `🎉 <b>Selamat datang di Temp Email Bot!</b>` : `🎉 <b>Welcome to Temp Email Bot!</b>`;
+  const desc = id
+    ? `Buat email sementara, baca inbox, dan kelola kode 2FA/OTP.`
+    : `Create temporary emails, read the inbox, and manage 2FA/OTP codes.`;
+  const webInfo = id
+    ? `🌐 <b>Versi Web:</b> https://temp.zsecret.me\nKelola email & API key langsung dari browser.`
+    : `🌐 <b>Web Version:</b> https://temp.zsecret.me\nManage emails & API keys right from your browser.`;
 
-━━━ ${t(lang, "email_section")} ━━━
+  let message = `${title}\n\n${desc}\n\n${webInfo}\n\n━━━ 📧 <b>EMAIL</b> ━━━\n\n` +
+`<b>/create</b> ${id ? 'atau' : 'or'} <b>/c</b> <code>nama</code>\n${id ? '→ Buat alamat email baru' : '→ Create a new email address'}\n\n` +
+`<b>/list</b> ${id ? 'atau' : 'or'} <b>/e</b>\n${id ? '→ Daftar semua email kamu' : '→ List all your emails'}\n\n` +
+`<b>/mails</b> ${id ? 'atau' : 'or'} <b>/m</b> <code>nama</code>\n${id ? '→ Lihat inbox sebuah alamat' : '→ View an address inbox'}\n\n` +
+`<b>/read</b> ${id ? 'atau' : 'or'} <b>/r</b> <code>ID</code>\n${id ? '→ Baca isi email lengkap' : '→ Read the full email'}\n\n` +
+`<b>/search</b> ${id ? 'atau' : 'or'} <b>/s</b> <code>kata</code>\n${id ? '→ Cari email' : '→ Search emails'}\n\n` +
+`<b>/delete</b> ${id ? 'atau' : 'or'} <b>/d</b> <code>nama</code>\n${id ? '→ Hapus email milikmu' : '→ Delete your email'}\n\n` +
+`<b>/export</b> <code>ID</code>\n${id ? '→ Unduh email sebagai file .txt' : '→ Download email as a .txt file'}\n\n` +
+`<b>/domains</b>\n${id ? '→ Lihat domain yang tersedia' : '→ List available domains'}\n\n` +
+`━━━ 🔐 <b>2FA/OTP</b> ━━━\n\n` +
+`<b>/2fa</b> ${id ? 'atau' : 'or'} <b>/a</b> <code>nama</code>\n${id ? '→ Generate kode OTP' : '→ Generate OTP code'}\n\n` +
+`<b>/2fa add</b> <code>nama SECRET</code>\n${id ? '→ Simpan secret baru' : '→ Save a new secret'}\n\n` +
+`<b>/2fa list</b>\n${id ? '→ Daftar secret tersimpan' : '→ List saved secrets'}\n\n` +
+`<b>/2fa del</b> <code>nama</code>\n${id ? '→ Hapus secret' : '→ Delete a secret'}\n\n` +
+`<b>/qr</b> <code>nama</code>\n${id ? '→ QR code secret (dibuat lokal, aman)' : '→ Secret QR code (generated locally, private)'}\n\n` +
+`<b>/backup</b>\n${id ? '→ Backup semua secret' : '→ Backup all secrets'}\n\n` +
+`━━━ 👤 <b>${id ? 'AKUN' : 'ACCOUNT'}</b> ━━━\n\n` +
+`<b>/apikey</b>\n${id ? '→ Buat & kelola API key (untuk web & API)' : '→ Create & manage API keys (for web & API)'}\n\n` +
+`<b>/mystats</b> ${id ? 'atau' : 'or'} <b>/me</b>\n${id ? '→ Statistik akunmu' : '→ Your account stats'}\n\n` +
+`<b>/setting</b>\n${id ? '→ Pengaturan (auto-delete, dll)' : '→ Settings (auto-delete, etc)'}\n\n` +
+`<b>/lang</b>\n${id ? '→ Ganti bahasa' : '→ Change language'}\n\n` +
+`<b>/requestdomain</b> <code>domain.com</code>\n${id ? '→ Request custom domain (Premium)' : '→ Request a custom domain (Premium)'}\n\n` +
+`<b>/mydomains</b> ${id ? '→ Domain custom milikmu' : '→ Your custom domains'}\n` +
+`<b>/setupdomain</b> ${id ? '→ Lihat DNS yang harus dipasang' : '→ Show DNS records to set up'}\n` +
+`<b>/verifydomain</b> ${id ? '→ Minta verifikasi DNS' : '→ Request DNS verification'}\n` +
+`<b>/canceldomain</b> ${id ? '→ Batalkan request domain' : '→ Cancel a domain request'}`;
 
-<b>/create</b> ${or} <b>/c</b> <code>nama</code>
-${t(lang, "create_desc")} (→ <code>nama@${defaultDomain}</code>)${multiDomainInfo}
-
-<b>/mails</b> ${or} <b>/m</b> <code>nama</code>
-${t(lang, "mails_desc")}
-
-<b>/search</b> ${or} <b>/s</b> <code>kata</code>
-${t(lang, "search_desc")}
-
-━━━ ${t(lang, "twofa_section")} ━━━
-
-<b>/2fa</b> ${or} <b>/a</b> <code>secret</code>
-${t(lang, "twofa_desc")}
-
-<b>/2fa add</b> <code>nama secret</code>
-${t(lang, "twofa_add_desc")}
-
-<b>/2fa list</b>
-${t(lang, "twofa_list_desc")}
-
-━━━ ${t(lang, "account_section")} ━━━
-
-<b>/mystats</b> ${or} <b>/me</b>
-${t(lang, "mystats_desc")}
-
-<b>/setting</b>
-${t(lang, "settings_desc")}
-
-━━━━━━━━━━━━━━━
-💡 Gunakan /menu untuk navigasi dengan tombol`;
-
+  // Bagian admin: hanya terlihat oleh admin
   if (isAdmin) {
-    message += `
-
-━━━ ${t(lang, "admin_section")} ━━━
-/stats, /users, /premium, /blacklist, /cleanup, /broadcast`;
+    message += `\n\n━━━ 🔧 <b>ADMIN</b> ━━━\n\n` +
+`<b>/stats</b> ${id ? '→ Statistik bot' : '→ Bot statistics'}\n` +
+`<b>/users</b> <code>[${id ? 'halaman' : 'page'}]</code> ${id ? '→ Daftar user' : '→ List users'}\n` +
+`<b>/premium</b> <code>add/del ID</code> ${id ? '→ Kelola premium' : '→ Manage premium'}\n` +
+`<b>/blacklist</b> <code>add/del ${id ? 'pola' : 'pattern'}</code> ${id ? '→ Blacklist pengirim' : '→ Sender blacklist'}\n` +
+`<b>/broadcast</b> <code>${id ? 'pesan' : 'message'}</code> ${id ? '→ Pengumuman ke semua user' : '→ Announce to all users'}\n` +
+`<b>/cleanup</b> ${id ? '→ Hapus email lama' : '→ Delete old emails'}\n` +
+`<b>/domainrequests</b> ${id ? '→ Request domain pending' : '→ Pending domain requests'}\n` +
+`<b>/approvedomain</b> / <b>/rejectdomain</b> ${id ? '→ Setujui/tolak domain' : '→ Approve/reject domain'}\n` +
+`<b>/activatedomain</b> / <b>/suspenddomain</b> ${id ? '→ Aktif/nonaktifkan domain' : '→ Activate/suspend domain'}\n` +
+`<b>/listdomains</b> ${id ? '→ Semua custom domain' : '→ All custom domains'}`;
   }
+
+  message += `\n\n━━━━━━━━━━━━━━━\n${id ? '💡 Gunakan /menu untuk navigasi dengan tombol' : '💡 Use /menu for button navigation'}`;
 
   return {
     text: message,
