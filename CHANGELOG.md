@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - **Keamanan**: CORS, rate limit 60 req/menit per key (D1 sliding window, fail-open), scope per user, format error konsisten
 - **Migrasi DB baru**: `src/db/migrations/add_api_keys.sql` (`npm run db:migrate:apikeys`)
 - **Perintah bot baru**: `/apikey create|list|revoke`
+- **Web UI**: dashboard di `https://<worker>/` — kelola alamat & inbox via browser, input API key (localStorage), panduan API key + endpoint built-in
 
 ## [2.2.0] - 2024-02-07
 

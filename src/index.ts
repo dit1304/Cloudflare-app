@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import * as OTPAuth from "otpauth";
 import { createApiApp } from "./routes/api";
+import { WEB_HTML } from "./routes/web";
 import { extractEmailBody, getSenderDisplayFromHeaders, parseFromHeader, stripHtml } from "./utils/email-parser";
 import { log, logError, entitiesToHtml, retryWithBackoff } from "./utils/helpers";
 import {
@@ -447,7 +448,7 @@ Buat email dengan domain tertentu:
 
 // ============ HEALTH CHECK ============
 app.get("/", (c) => {
-  return c.json({ status: "ok", name: "Temp Email Bot", version: "1.0.0" });
+  return c.html(WEB_HTML);
 });
 
 // ============ TELEGRAM WEBHOOK ============

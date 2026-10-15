@@ -162,9 +162,13 @@ FREE_MAX_INBOX: 50        // Max inbox messages
 
 Edit di `src/types/index.ts` untuk customize limits.
 
+## 🖥️ Web UI
+
+Buka `https://<worker>/` di browser — tersedia dashboard web untuk kelola alamat, baca inbox, dan panduan API key. Cukup paste API key sekali (tersimpan di localStorage browser).
+
 ## 🔌 REST API (`/api/v1`)
 
-Selain bot Telegram, worker ini menyediakan REST API berformat JSON.
+Selain bot Telegram dan Web UI, worker ini menyediakan REST API berformat JSON.
 
 ### Buat API Key
 
