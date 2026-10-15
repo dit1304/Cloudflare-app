@@ -5,6 +5,7 @@ import { createApiApp } from "./routes/api";
 import { WEB_HTML } from "./routes/web";
 import { extractEmailBody, getSenderDisplayFromHeaders, parseFromHeader, stripHtml } from "./utils/email-parser";
 import { log, logError, entitiesToHtml, retryWithBackoff } from "./utils/helpers";
+import { generateQrPng } from "./utils/qr";
 import {
   handleRequestDomain,
   handleMyDomains,
@@ -943,9 +944,7 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
 
     case "/delete":
     case "/d":
-      if (!isAdmin) {
-        return t(lang, "admin_only");
-      }
+      // handleDelete sudah membatasi ke email milik user sendiri (WHERE user_id = ?)
       return await handleDelete(env, telegramUserId, arg);
 
     case "/2fa":
@@ -971,8 +970,10 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
       return await handleBlacklist(env, telegramUserId, arg);
 
     case "/forward":
-    case "/export":
       return await handleForward(env, telegramUserId, arg);
+
+    case "/export":
+      return await handleExport(env, telegramUserId, arg);
 
     case "/cleanup":
       if (!isAdmin) {
@@ -1696,7 +1697,7 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
           const username = item.telegram_username ? `@${item.telegram_username}` : "(no username)";
           response += `\n👤 <b>User ${currentUser}</b> ${username}\n`;
         }
-        response += `  🔑 ${item.name}\n`;
+        response += `  🔑 ${escapeHtml(item.name)}\n`;
       }
       return response;
     }
@@ -1722,7 +1723,7 @@ Kamu sudah memiliki <b>${limits.current}/${limits.max}</b> secret.
     const secrets = result.results as any[];
     
     for (const item of secrets) {
-      response += `🔑 <b>${item.name}</b>\n`;
+      response += `🔑 <b>${escapeHtml(item.name)}</b>\n`;
     }
     response += `\n━━━━━━━━━━━━━━━
 👇 Tap tombol untuk generate kode`;
@@ -1944,10 +1945,10 @@ Contoh:
   }
 
   if (!result.results || result.results.length === 0) {
-    return `🔍 Tidak ditemukan hasil untuk "<b>${query}</b>"`;
+    return `🔍 Tidak ditemukan hasil untuk "<b>${escapeHtml(query)}</b>"`;
   }
 
-  let response = `🔍 <b>Hasil Pencarian: "${query}"</b>\n\n`;
+  let response = `🔍 <b>Hasil Pencarian: "${escapeHtml(query)}"</b>\n\n`;
   const messages = result.results as any[];
   
   // Build keyboard with read buttons
@@ -1962,8 +1963,8 @@ Contoh:
   
   for (const msg of messages) {
     response += `📧 <b>ID ${msg.id}</b> - ${msg.email_address.split('@')[0]}
-👤 ${msg.sender.substring(0, 30)}
-📋 ${(msg.subject || "(Tanpa subjek)").substring(0, 40)}
+👤 ${escapeHtml(msg.sender.substring(0, 30))}
+📋 ${escapeHtml((msg.subject || "(Tanpa subjek)").substring(0, 40))}
 
 `;
   }
@@ -2075,6 +2076,10 @@ Format: <code>/forward ID email@tujuan.com</code>
 Contoh: <code>/forward 5 myemail@gmail.com</code>`;
   }
 
+  if (isNaN(parseInt(messageId))) {
+    return `⚠️ ID email harus berupa angka. Contoh: <code>/forward 5 myemail@gmail.com</code>`;
+  }
+
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
   const userId = await getUserId(env.DB, telegramUserId);
   if (!userId) return `❌ Error: User tidak ditemukan.`;
@@ -2086,24 +2091,88 @@ Contoh: <code>/forward 5 myemail@gmail.com</code>`;
     ).bind(parseInt(messageId)).first();
   } else {
     msg = await env.DB.prepare(`
-      SELECT i.*, e.email_address FROM inbox i 
-      JOIN emails e ON i.email_id = e.id 
+      SELECT i.*, e.email_address FROM inbox i
+      JOIN emails e ON i.email_id = e.id
       WHERE i.id = ? AND e.user_id = ?
     `).bind(parseInt(messageId), userId).first();
   }
 
   if (!msg) {
-    return `❌ Email dengan ID ${messageId} tidak ditemukan.`;
+    return `❌ Email dengan ID ${escapeHtml(messageId)} tidak ditemukan.`;
   }
 
   return `📤 <b>Forward Email</b>
 
-📧 Dari: ${(msg as any).sender}
-📋 Subjek: ${(msg as any).subject}
-📨 Tujuan: ${targetEmail}
+📧 Dari: ${escapeHtml(String((msg as any).sender || ''))}
+📋 Subjek: ${escapeHtml(String((msg as any).subject || '(tanpa subjek)'))}
+📨 Tujuan: ${escapeHtml(targetEmail)}
 
-⚠️ Fitur forward email memerlukan SMTP.
-💡 Untuk sementara, copy isi email dengan <code>/read ${messageId}</code>`;
+⚠️ Forward langsung ke alamat email memerlukan SMTP dan belum tersedia.
+💡 Gunakan <code>/export ${escapeHtml(messageId)}</code> untuk mengunduh email sebagai file.`;
+}
+
+// Export email sebagai file .txt via Telegram document
+async function handleExport(env: Bindings, telegramUserId: string, arg: string): Promise<string> {
+  const messageId = arg.split(/\s+/)[0];
+
+  if (!messageId) {
+    return `📥 <b>Export Email</b>
+
+Format: <code>/export ID</code>
+
+Contoh: <code>/export 5</code>
+
+Email akan dikirim sebagai file .txt yang bisa diunduh.`;
+  }
+
+  if (isNaN(parseInt(messageId))) {
+    return `⚠️ ID email harus berupa angka. Contoh: <code>/export 5</code>`;
+  }
+
+  const isAdmin = telegramUserId === env.ADMIN_USER_ID;
+  const userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) return `❌ Error: User tidak ditemukan.`;
+
+  let msg: any;
+  if (isAdmin) {
+    msg = await env.DB.prepare(
+      "SELECT i.*, e.email_address FROM inbox i JOIN emails e ON i.email_id = e.id WHERE i.id = ?"
+    ).bind(parseInt(messageId)).first();
+  } else {
+    msg = await env.DB.prepare(`
+      SELECT i.*, e.email_address FROM inbox i
+      JOIN emails e ON i.email_id = e.id
+      WHERE i.id = ? AND e.user_id = ?
+    `).bind(parseInt(messageId), userId).first();
+  }
+
+  if (!msg) {
+    return `❌ Email dengan ID ${escapeHtml(messageId)} tidak ditemukan.`;
+  }
+
+  const content =
+    `Dari: ${msg.sender || ''}\n` +
+    `Kepada: ${msg.email_address || ''}\n` +
+    `Tanggal: ${msg.received_at || ''}\n` +
+    `Subjek: ${msg.subject || '(tanpa subjek)'}\n` +
+    `${'='.repeat(40)}\n\n${msg.body || '(kosong)'}\n`;
+
+  try {
+    const form = new FormData();
+    form.append('chat_id', telegramUserId);
+    form.append('document', new Blob([content], { type: 'text/plain' }), `email-${messageId}.txt`);
+    form.append('caption', `📥 Export email ID ${messageId}`);
+    const resp = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!resp.ok) throw new Error(`Telegram API error: ${resp.status}`);
+  } catch (e) {
+    console.error('Failed to send export document:', e);
+    return `❌ Gagal mengirim file export. Coba lagi nanti.`;
+  }
+
+  return `✅ Email ID ${escapeHtml(messageId)} dikirim sebagai file di atas 👆`;
 }
 
 // Cleanup old emails (admin only)
@@ -2787,7 +2856,7 @@ async function handleBackup(env: Bindings, telegramUserId: string): Promise<stri
 `;
 
   for (const item of secrets.results as any[]) {
-    backup += `📛 ${item.name}
+    backup += `📛 ${escapeHtml(item.name)}
 🔑 ${item.secret}
 📅 ${item.created_at?.split('T')[0] || 'N/A'}
 ──────────────────
@@ -2803,6 +2872,7 @@ Jangan bagikan ke siapapun.`;
   return `<pre>${backup}</pre>`;
 }
 
+// ============ QR CODE HANDLER ============
 // ============ QR CODE HANDLER ============
 async function handleQR(env: Bindings, telegramUserId: string, arg: string): Promise<string> {
   if (!arg) {
@@ -2824,24 +2894,24 @@ Ini akan generate QR code untuk secret tersimpan.`;
   ).bind(userId, name).first() as any;
 
   if (!result) {
-    return `❌ Secret "<b>${name}</b>" tidak ditemukan.
+    return `❌ Secret "<b>${escapeHtml(name)}</b>" tidak ditemukan.
 
 📋 Lihat daftar: <code>/2fa list</code>`;
   }
 
+  // QR dibuat lokal di Worker — secret tidak dikirim ke pihak ketiga mana pun
   const otpauthUri = `otpauth://totp/${encodeURIComponent(name)}?secret=${result.secret}&issuer=TempEmailBot`;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(otpauthUri)}`;
 
   try {
+    const png = await generateQrPng(otpauthUri);
+    const form = new FormData();
+    form.append('chat_id', telegramUserId);
+    form.append('photo', new Blob([png], { type: 'image/png' }), 'qr.png');
+    form.append('caption', `🔳 QR Code untuk: ${escapeHtml(name)}\n\n📱 Scan dengan app authenticator\n\n⚠️ Jangan bagikan QR ini!`);
+    form.append('parse_mode', 'HTML');
     const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: parseInt(telegramUserId),
-        photo: qrUrl,
-        caption: `🔳 QR Code untuk: ${name}\n\n📱 Scan dengan app authenticator\n\n🔗 Manual entry:\n${result.secret}\n\n⚠️ Jangan bagikan QR ini!`,
-        parse_mode: "HTML"
-      })
+      method: 'POST',
+      body: form,
     });
 
     if (!response.ok) {
@@ -2849,18 +2919,18 @@ Ini akan generate QR code untuk secret tersimpan.`;
     }
   } catch (e) {
     console.error("Failed to send QR photo:", e);
-    return `🔳 <b>QR Code untuk: ${name}</b>
+    return `🔳 <b>QR Code untuk: ${escapeHtml(name)}</b>
 
-📱 <a href="${qrUrl}">📲 Klik untuk lihat QR Code</a>
+❌ Gagal generate QR. Gunakan manual entry:
 
 🔗 <b>Manual entry:</b>
-<code>${result.secret}</code>
+<code>${escapeHtml(result.secret)}</code>
 
 ⚠️ Jangan bagikan!`;
   }
 
   // Return a confirmation message instead of empty string
-  return `🔳 QR Code untuk <b>${name}</b> telah dikirim di atas! 👆
+  return `🔳 QR Code untuk <b>${escapeHtml(name)}</b> telah dikirim di atas! 👆
 
 📱 Scan dengan app authenticator (Google Authenticator, Authy, dll)`;
 }

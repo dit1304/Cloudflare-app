@@ -13,11 +13,13 @@
   },
   "dependencies": {
     "hono": "^4.0.0",
-    "otpauth": "^9.0.0"
+    "otpauth": "^9.0.0",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.0.0",
-    "wrangler": "^3.0.0",
-    "typescript": "^5.0.0"
+    "@types/qrcode-generator": "^0.0.16",
+    "typescript": "^5.0.0",
+    "wrangler": "^3.0.0"
   }
 }

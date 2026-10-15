@@ -17,7 +17,7 @@ import {
 import { getStatusEmoji, getStatusText } from '../utils/domain-utils';
 import { getLang } from '../utils/translations';
 import { buildBackButton } from '../utils/keyboards';
-import { logError } from '../utils/helpers';
+import { logError, escapeHtml } from '../utils/helpers';
 import { sendTelegramMessage } from '../services/telegram';
 
 /**
@@ -147,7 +147,7 @@ Current status: ${getStatusText(domain.status, lang)}`,
 
 📧 <b>Domain:</b> <code>${domain.domain}</code>
 ✅ <b>Approved by:</b> @kakatiri
-📝 <b>Note:</b> ${note}
+📝 <b>Note:</b> ${escapeHtml(note)}
 
 ━━━━━━━━━━━━━━━
 <b>Next Steps:</b>
@@ -187,7 +187,7 @@ Current status: ${getStatusText(domain.status, lang)}`,
 
 📧 Domain: <code>${domain.domain}</code>
 👤 User notified
-📝 Note: ${note}
+📝 Note: ${escapeHtml(note)}
 
 User will setup DNS and request verification.`,
     keyboard: {
