@@ -3227,7 +3227,7 @@ Belum ada email masuk. Gunakan alamat di atas untuk menerima email.`,
     const status = msg.is_read ? "📖" : "📩";
     const subject = msg.subject || "(Tanpa subjek)";
     const shortSubject = subject.length > 30 ? subject.substring(0, 30) + "..." : subject;
-    response += `${status} <b>ID ${msg.id}</b> - ${shortSubject}
+    response += `${status} <b>ID ${msg.id}</b> - ${escapeHtml(shortSubject)}
 `;
   }
 
@@ -3297,15 +3297,17 @@ Contoh: <code>/read 5</code>`,
 
   await env.DB.prepare("UPDATE inbox SET is_read = 1 WHERE id = ?").bind(parseInt(messageId)).run();
 
-  const senderDisplay = getSenderDisplayFromHeaders(msg.sender, msg.headers);
-  const body = stripHtml(msg.body || "(Tidak ada isi)").substring(0, 3000);
+  // Escape semua konten user agar tidak merusak parse_mode HTML Telegram
+  const senderDisplay = escapeHtml(getSenderDisplayFromHeaders(msg.sender, msg.headers));
+  const subject = escapeHtml(msg.subject || "(Tanpa subjek)");
+  const body = escapeHtml(stripHtml(msg.body || "(Tidak ada isi)").substring(0, 3000));
 
   return {
     text: `📧 <b>Email #${msg.id}</b>
 
 📬 <b>Ke:</b> ${msg.email_address}
 👤 <b>Dari:</b> ${senderDisplay}
-📋 <b>Subjek:</b> ${msg.subject || "(Tanpa subjek)"}
+📋 <b>Subjek:</b> ${subject}
 ⏰ <b>Waktu:</b> ${msg.received_at}
 
 ━━━━━━━━━━━━━━━
@@ -3734,6 +3736,26 @@ async function editTelegramMessage(botToken: string, chatId: number, messageId: 
       const errorText = await response.text();
       if (!errorText.includes("message is not modified")) {
         console.error("Telegram editMessage error:", errorText);
+      }
+      // Fallback seperti sendTelegramMessage: jika HTML gagal di-parse,
+      // coba lagi tanpa parse_mode agar user tetap dapat isinya
+      if (errorText.includes("can't parse entities")) {
+        const plainBody: any = {
+          chat_id: chatId,
+          message_id: messageId,
+          text: truncatedText.replace(/<[^>]+>/g, ""),
+        };
+        if (keyboard) {
+          plainBody.reply_markup = keyboard.inline_keyboard
+            ? keyboard
+            : { inline_keyboard: keyboard };
+        }
+        const fallbackResponse = await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(plainBody),
+        });
+        return fallbackResponse.ok;
       }
       return false;
     }

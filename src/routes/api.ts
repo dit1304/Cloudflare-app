@@ -185,17 +185,18 @@ api.get('/messages/:id', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id)) return err(c, 400, 'invalid_id', 'ID pesan tidak valid.');
   const row = await c.env.DB.prepare(
-    `SELECT i.id, i.email_id, i.sender, i.subject, i.body, i.is_read, i.received_at
+    `SELECT i.id, i.email_id, i.sender, i.subject, i.body, i.is_read, i.received_at, e.email_address AS address
      FROM inbox i JOIN emails e ON i.email_id = e.id
      WHERE i.id = ? AND e.user_id = ?`
   )
     .bind(id, apiKey.user_id)
-    .first<InboxMessage>();
+    .first<InboxMessage & { address: string }>();
   if (!row) return err(c, 404, 'not_found', 'Pesan tidak ditemukan.');
   if (!row.is_read) await markAsRead(c.env.DB, row.id);
   return c.json({
     id: row.id,
     email_id: row.email_id,
+    address: row.address,
     sender: row.sender,
     subject: row.subject,
     body: row.body,

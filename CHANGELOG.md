@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### 🐛 Bug fixes: baca pesan & parser email
+- **Baca pesan gagal diam-diam**: `handleRead`/`handleMails` sekarang escape HTML di subject/pengirim/isi; `editTelegramMessage` dapat fallback "can't parse entities" seperti `sendTelegramMessage`
+- **Isi pesan rusak**: `decodeMimePartBody` tidak lagi double-decode base64 (heuristic hanya untuk encoding tak dikenal)
+- **Parser**: `parseMimeParts` dedupe boundary; `decodeRFC2047` hanya diterapkan di header
+- **Web UI**: judul jadi "Zero TempMail", kredit @kakatiri, detail pesan tampil full + alamat tujuan
+
 ### 🔌 Major Feature: REST API (`/api/v1`)
 
 #### Programmatic access via JSON API

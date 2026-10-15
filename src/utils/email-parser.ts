@@ -236,8 +236,12 @@ function parseMimeParts(rawEmail: string): Array<{ headers: string; body: string
   const boundaryMatches = rawEmail.match(/boundary=["']?([^"'\s;]+)["']?/gi);
   if (!boundaryMatches) return parts;
 
+  // Dedupe: tiap boundary unik hanya diproses sekali (hindari part ganda di nested multipart)
+  const seen = new Set<string>();
   for (const bm of boundaryMatches) {
     const boundary = bm.replace(/boundary=["']?/i, '').replace(/["']$/, '');
+    if (seen.has(boundary)) continue;
+    seen.add(boundary);
     const sections = rawEmail.split('--' + boundary);
 
     for (const section of sections) {
@@ -273,17 +277,18 @@ function decodeMimePartBody(body: string, encoding: string, charset: string): st
   let content = body;
 
   if (encoding === 'base64') {
+    // Encoding eksplisit: decode sekali saja. Jangan terapkan heuristic lagi
+    // karena teks hasil decode yang kebetulan mirip base64 akan rusak.
     content = decodeBase64(content);
   } else if (encoding === 'quoted-printable') {
     content = decodeQuotedPrintable(content);
-  }
-
-  if (isBase64(content)) {
-    content = decodeBase64(content);
-  }
-
-  if (/=[0-9A-Fa-f]{2}/.test(content) && (content.includes('=0A') || content.includes('=0D') || content.includes('=3D') || content.includes('=20'))) {
-    content = decodeQuotedPrintable(content);
+  } else {
+    // Encoding tidak diketahui: baru pakai heuristic
+    if (isBase64(content)) {
+      content = decodeBase64(content);
+    } else if (/=[0-9A-Fa-f]{2}/.test(content) && (content.includes('=0A') || content.includes('=0D') || content.includes('=3D') || content.includes('=20'))) {
+      content = decodeQuotedPrintable(content);
+    }
   }
 
   content = decodeCharset(content, charset);
@@ -294,7 +299,14 @@ function decodeMimePartBody(body: string, encoding: string, charset: string): st
  * Enhanced email body extraction
  */
 export function extractEmailBody(rawEmail: string): string {
-  rawEmail = decodeRFC2047(rawEmail);
+  // Decode RFC2047 hanya di bagian header — body dibiarkan apa adanya
+  // agar teks body yang kebetulan mirip encoded-word tidak rusak.
+  const headerEndIdx = rawEmail.search(/\r?\n\r?\n/);
+  if (headerEndIdx >= 0) {
+    rawEmail = decodeRFC2047(rawEmail.substring(0, headerEndIdx)) + rawEmail.substring(headerEndIdx);
+  } else {
+    rawEmail = decodeRFC2047(rawEmail);
+  }
   const charset = extractCharset(rawEmail);
 
   const mimeParts = parseMimeParts(rawEmail);

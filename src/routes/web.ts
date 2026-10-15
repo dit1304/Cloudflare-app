@@ -7,7 +7,7 @@ export const WEB_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TempMail Web</title>
+<title>Zero TempMail</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f1420;color:#e8ecf4;min-height:100vh}
@@ -50,7 +50,7 @@ th{color:#9aa7c7;font-weight:600}
 <body>
 <div class="wrap">
 <header>
-<h1>📧 TempMail Web</h1>
+<h1>📧 Zero TempMail</h1>
 <span class="badge" id="keyBadge">tanpa API key</span>
 </header>
 
@@ -108,6 +108,7 @@ th{color:#9aa7c7;font-weight:600}
   https://HOST/api/v1/addresses</pre>
 </div>
 </div>
+<div class="muted" style="text-align:center;margin-top:4px">Made by <a href="https://t.me/kakatiri" style="color:#2f6bff">@kakatiri</a></div>
 
 <script>
 var API = 'api/v1';
@@ -207,7 +208,9 @@ async function readMsg(id){
   try{
     var m = await api('/messages/' + id);
     var d = document.getElementById('msgDetail');
-    d.innerHTML = '<div class="detail"><div class="s muted">Dari: ' + esc(m.sender) + '</div>' +
+    d.innerHTML = '<div class="detail"><div class="s muted">Ke: ' + esc(m.address || '') + '</div>' +
+      '<div class="s muted">Dari: ' + esc(m.sender) + '</div>' +
+      '<div class="s muted">Waktu: ' + esc(m.received_at || '') + '</div>' +
       '<div style="font-weight:700;margin:6px 0">' + esc(m.subject || '(tanpa subjek)') + '</div>' +
       '<pre>' + esc(m.body || '(kosong)') + '</pre></div>';
     loadInbox();
