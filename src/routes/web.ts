@@ -12,49 +12,67 @@ export const WEB_HTML = `<!DOCTYPE html>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f1420;color:#e8ecf4;min-height:100vh}
 .wrap{max-width:860px;margin:0 auto;padding:20px 16px 60px}
-header{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid #232c44;margin-bottom:18px}
-header h1{font-size:20px}
-.badge{font-size:12px;padding:4px 10px;border-radius:20px;background:#232c44;color:#9aa7c7}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 0;border-bottom:1px solid #232c44;margin-bottom:18px}
+header h1{font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr-right{display:flex;align-items:center;gap:8px;position:relative;flex-shrink:0}
+.badge{font-size:12px;padding:4px 10px;border-radius:20px;background:#232c44;color:#9aa7c7;white-space:nowrap}
 .badge.on{background:#123f2b;color:#4ade80}
-.card{background:#161d31;border:1px solid #232c44;border-radius:12px;padding:16px;margin-bottom:16px}
+.card{background:#161d31;border:1px solid #232c44;border-radius:12px;padding:16px;margin-bottom:16px;overflow:hidden}
 .card h2{font-size:16px;margin-bottom:12px}
 .row{display:flex;gap:8px;flex-wrap:wrap}
-input,select,button{font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #2c3654;background:#0f1420;color:#e8ecf4}
-input,select{flex:1;min-width:140px}
-button{background:#2f6bff;border-color:#2f6bff;color:#fff;cursor:pointer;font-weight:600}
+input,select,button{font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #2c3654;background:#0f1420;color:#e8ecf4;max-width:100%}
+input,select{flex:1;min-width:0}
+select{overflow:hidden;text-overflow:ellipsis}
+button{background:#2f6bff;border-color:#2f6bff;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap}
 button:hover{background:#2559d6}
 button.ghost{background:transparent;border-color:#2c3654;color:#9aa7c7}
 button.danger{background:transparent;border-color:#7f2d3a;color:#f87171}
 button:disabled{opacity:.5;cursor:default}
-.addr{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;border:1px solid #232c44;border-radius:8px;margin-top:8px;background:#101729}
-.addr .a{font-family:monospace;font-size:13px;word-break:break-all}
+.addr{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid #232c44;border-radius:8px;margin-top:8px;background:#101729}
+.addr .a{font-family:monospace;font-size:13px;overflow-wrap:anywhere}
+.addr .row{width:100%}
+.addr .row button{flex:1}
 .unread{background:#7c2d12;color:#fdba74;font-size:11px;padding:2px 8px;border-radius:12px;margin-left:8px;white-space:nowrap}
-.msg{padding:10px;border:1px solid #232c44;border-radius:8px;margin-top:8px;background:#101729;cursor:pointer}
+.msg{padding:10px;border:1px solid #232c44;border-radius:8px;margin-top:8px;background:#101729;cursor:pointer;overflow:hidden}
 .msg.unreadmsg{border-left:3px solid #2f6bff}
-.msg .s{font-size:13px;color:#9aa7c7}
-.msg .t{font-size:14px;margin:2px 0}
-.detail{margin-top:8px;padding:12px;background:#0b101d;border:1px solid #232c44;border-radius:8px}
-.detail pre{white-space:pre-wrap;word-break:break-word;font-size:13px;color:#c9d3ea;max-height:400px;overflow:auto}
+.msg .s{font-size:12px;color:#9aa7c7;overflow-wrap:anywhere}
+.msg .t{font-size:14px;margin:4px 0 0;overflow-wrap:break-word}
+.detail{margin-top:8px;padding:12px;background:#0b101d;border:1px solid #232c44;border-radius:8px;overflow:hidden}
+.detail pre{white-space:pre-wrap;overflow-wrap:break-word;font-size:13px;color:#c9d3ea;max-height:400px;overflow:auto}
+.detail .s{overflow-wrap:anywhere}
 .muted{color:#9aa7c7;font-size:13px}
-.err{color:#f87171;font-size:13px;margin-top:8px}
+.err{color:#f87171;font-size:13px;margin-top:8px;overflow-wrap:break-word}
 .ok{color:#4ade80;font-size:13px;margin-top:8px}
 ol.guide{margin:8px 0 8px 20px;font-size:14px}
 ol.guide li{margin-bottom:6px}
-code{background:#0b101d;padding:2px 6px;border-radius:6px;font-size:13px}
-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+code{background:#0b101d;padding:2px 6px;border-radius:6px;font-size:13px;overflow-wrap:break-word}
+.tablewrap{overflow-x:auto;margin:0 -16px;padding:0 16px}
+table{width:100%;min-width:560px;border-collapse:collapse;font-size:13px;margin-top:8px}
 th,td{text-align:left;padding:8px;border-bottom:1px solid #232c44;vertical-align:top}
-th{color:#9aa7c7;font-weight:600}
+th{color:#9aa7c7;font-weight:600;white-space:nowrap}
+pre.curl{background:#0b101d;padding:10px;border-radius:8px;font-size:12px;overflow-x:auto;white-space:pre;max-width:100%}
 .hide{display:none}
 .dropdown{position:absolute;top:46px;right:0;background:#161d31;border:1px solid #232c44;border-radius:10px;min-width:170px;z-index:50;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.5)}
-.mi{padding:12px 14px;font-size:14px;cursor:pointer}
+.mi{padding:12px 14px;font-size:14px;cursor:pointer;white-space:nowrap}
 .mi:hover{background:#1d2540}
+@media (min-width:640px){
+  .addr{flex-direction:row;align-items:center;justify-content:space-between}
+  .addr .row{width:auto}
+  .addr .row button{flex:none}
+  header h1{font-size:22px}
+}
+@media (max-width:400px){
+  header h1{font-size:17px}
+  .badge{font-size:11px}
+  .wrap{padding:14px 10px 50px}
+}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header>
 <h1>📧 Zero TempMail</h1>
-<div style="display:flex;align-items:center;gap:8px;position:relative">
+<div class="hdr-right">
 <span class="badge" id="keyBadge">tanpa API key</span>
 <button class="ghost" id="menuBtn" style="padding:8px 12px;font-size:18px;line-height:1">⋮</button>
 <div class="dropdown hide" id="menuDrop">
@@ -108,6 +126,7 @@ th{color:#9aa7c7;font-weight:600}
 <div class="card">
 <h2>🔌 Panduan API</h2>
 <div class="muted">Semua endpoint di bawah memakai header <code>X-API-Key</code>.</div>
+<div class="tablewrap">
 <table>
 <tr><th>Method</th><th>Endpoint</th><th>Kegunaan</th></tr>
 <tr><td>POST</td><td><code>/api/v1/addresses</code></td><td>Buat alamat. Body: <code>{"local_part":"tokoku"}</code></td></tr>
@@ -117,7 +136,8 @@ th{color:#9aa7c7;font-weight:600}
 <tr><td>GET</td><td><code>/api/v1/messages/:id</code></td><td>Baca pesan lengkap</td></tr>
 </table>
 <div class="muted" style="margin-top:10px">Contoh curl:</div>
-<pre style="background:#0b101d;padding:10px;border-radius:8px;font-size:12px;overflow:auto">curl -H "X-API-Key: tmail_..." \\
+</div>
+<pre class="curl">curl -H "X-API-Key: tmail_..." \\
   https://HOST/api/v1/addresses</pre>
 </div>
 </div>
