@@ -876,17 +876,23 @@ ${t(lang, "menu_desc")}
     case "/about":
       return {
         text: `👨‍💻 <b>Temp Email Bot</b>
-        
+
+🌐 <b>Versi Web:</b> https://temp.zsecret.me
+
 🔧 <b>Author & Developer:</b>
 └ @kakatiri
 
-📌 <b>Version:</b> 2.1.0
+📌 <b>Version:</b> 2.2.0
 🚀 <b>Platform:</b> Cloudflare Workers
 🛠️ <b>Tech Stack:</b> TypeScript, Hono, D1 Database
 
 ✨ <b>Features:</b>
 • Temporary Email Management
-• 2FA/OTP Generator
+• Web UI (Zero TempMail)
+• REST API + API Key
+• 2FA/OTP Generator (QR lokal, privat)
+• Export Email (.txt)
+• Custom Domain (Premium)
 • Multi-language Support (ID/EN)
 • Premium System
 • Real-time Email Notifications
@@ -1129,17 +1135,23 @@ async function processCallback(
         case "about":
           return {
             text: `👨‍💻 <b>Temp Email Bot</b>
-        
+
+🌐 <b>Versi Web:</b> https://temp.zsecret.me
+
 🔧 <b>Author & Developer:</b>
 └ @kakatiri
 
-📌 <b>Version:</b> 2.1.0
+📌 <b>Version:</b> 2.2.0
 🚀 <b>Platform:</b> Cloudflare Workers
 🛠️ <b>Tech Stack:</b> TypeScript, Hono, D1 Database
 
 ✨ <b>Features:</b>
 • Temporary Email Management
-• 2FA/OTP Generator
+• Web UI (Zero TempMail)
+• REST API + API Key
+• 2FA/OTP Generator (QR lokal, privat)
+• Export Email (.txt)
+• Custom Domain (Premium)
 • Multi-language Support (ID/EN)
 • Premium System
 • Real-time Email Notifications
@@ -2980,10 +2992,10 @@ async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolea
   if (isAdmin) {
     message += `\n\n━━━ 🔧 <b>ADMIN</b> ━━━\n\n` +
 `<b>/stats</b> ${id ? '→ Statistik bot' : '→ Bot statistics'}\n` +
-`<b>/users</b> <code>[${id ? 'halaman' : 'page'}]</code> ${id ? '→ Daftar user' : '→ List users'}\n` +
-`<b>/premium</b> <code>add/del ID</code> ${id ? '→ Kelola premium' : '→ Manage premium'}\n` +
+`<b>/users</b> ${id ? 'atau' : 'or'} <b>/u</b> <code>[${id ? 'halaman' : 'page'}]</code> ${id ? '→ Daftar user' : '→ List users'}\n` +
+`<b>/premium</b> ${id ? 'atau' : 'or'} <b>/p</b> <code>add/del ID</code> ${id ? '→ Kelola premium' : '→ Manage premium'}\n` +
 `<b>/blacklist</b> <code>add/del ${id ? 'pola' : 'pattern'}</code> ${id ? '→ Blacklist pengirim' : '→ Sender blacklist'}\n` +
-`<b>/broadcast</b> <code>${id ? 'pesan' : 'message'}</code> ${id ? '→ Pengumuman ke semua user' : '→ Announce to all users'}\n` +
+`<b>/broadcast</b> ${id ? 'atau' : 'or'} <b>/bc</b> <code>${id ? 'pesan' : 'message'}</code> ${id ? '→ Pengumuman ke semua user' : '→ Announce to all users'}\n` +
 `<b>/cleanup</b> ${id ? '→ Hapus email lama' : '→ Delete old emails'}\n` +
 `<b>/domainrequests</b> ${id ? '→ Request domain pending' : '→ Pending domain requests'}\n` +
 `<b>/approvedomain</b> / <b>/rejectdomain</b> ${id ? '→ Setujui/tolak domain' : '→ Approve/reject domain'}\n` +
