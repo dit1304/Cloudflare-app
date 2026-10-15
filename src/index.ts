@@ -841,7 +841,18 @@ async function processCommand(
   
   switch (command) {
     case "/start": {
-      // Always show language selection first on /start
+      // User lama yang sudah pilih bahasa -> langsung ke menu utama.
+      // Pilihan bahasa hanya untuk user baru (atau via /lang).
+      if (userLang) {
+        return {
+          text: `${t(lang, "menu_title")}
+
+${t(lang, "menu_desc")}
+
+🌐 <b>Web:</b> https://temp.zsecret.me`,
+          keyboard: buildMainMenuKeyboard(lang, isAdmin)
+        };
+      }
       return {
         text: `🌍 <b>Pilih Bahasa / Choose Language</b>
 
