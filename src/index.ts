@@ -1,5 +1,7 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import * as OTPAuth from "otpauth";
+import { createApiApp } from "./routes/api";
 import { extractEmailBody, getSenderDisplayFromHeaders, parseFromHeader, stripHtml } from "./utils/email-parser";
 import { log, logError, entitiesToHtml, retryWithBackoff } from "./utils/helpers";
 import {
@@ -273,6 +275,18 @@ function t(lang: Language, key: keyof typeof TRANSLATIONS.id): string {
 }
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+// ============ REST API (/api/v1) ============
+app.use(
+  "/api/*",
+  cors({
+    origin: "*",
+    allowHeaders: ["Content-Type", "X-API-Key", "Authorization"],
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    maxAge: 86400,
+  })
+);
+app.route("/api/v1", createApiApp());
 
 // Helper function to get list of domains
 function getDomains(env: Bindings): string[] {
@@ -937,6 +951,10 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
     case "/otp":
     case "/a":
       return await handle2FA(env, telegramUserId, arg);
+
+    case "/apikey":
+    case "/api":
+      return await handleApiKey(env, telegramUserId, arg);
 
     case "/search":
     case "/s":
@@ -1820,6 +1838,68 @@ Contoh: <code>/2fa JBSWY3DPEHPK3PXP</code>
 ${responseText}━━━━━━━━━━━━━━━
 💡 Kode berubah setiap 30 detik.
 💾 Simpan: <code>/2fa add nama SECRET</code>`;
+}
+
+// API key management (untuk REST API /api/v1)
+async function handleApiKey(env: Bindings, telegramUserId: string, arg: string): Promise<CommandResponse> {
+  const { createApiKey, listApiKeys, revokeApiKey } = await import("./services/api-keys");
+
+  let userId = await getUserId(env.DB, telegramUserId);
+  if (!userId) {
+    await ensureUser(env.DB, telegramUserId);
+    userId = await getUserId(env.DB, telegramUserId);
+  }
+  if (!userId) return `❌ Gagal mengidentifikasi user.`;
+
+  const [sub, ...rest] = arg.trim().split(/\s+/);
+  const subLower = (sub || "").toLowerCase();
+
+  if (subLower === "create") {
+    const name = rest.join(" ").slice(0, 64) || "default";
+    try {
+      const { key, id } = await createApiKey(env.DB, userId, name);
+      return `🔑 <b>API Key dibuat!</b>
+
+<code>${key}</code>
+
+⚠️ <b>Simpan sekarang!</b> Key asli hanya ditampilkan sekali ini.
+📛 Nama: ${name}
+🆔 ID: ${id} (untuk revoke: <code>/apikey revoke ${id}</code>)
+
+Cara pakai:
+<code>curl -H "X-API-Key: ${key}" ${env.WORKER_URL ? `https://${env.WORKER_URL}` : "<worker-url>"}/api/v1/addresses</code>`;
+    } catch (e) {
+      return `❌ Gagal membuat API key. Coba lagi.`;
+    }
+  }
+
+  if (subLower === "list") {
+    const keys = await listApiKeys(env.DB, userId);
+    if (keys.length === 0) {
+      return `📭 Belum ada API key.\n\nBuat dengan: <code>/apikey create nama-key</code>`;
+    }
+    const lines = keys.map((k) =>
+      `${k.is_active ? "✅" : "🚫"} <b>#${k.id}</b> <code>${k.key_prefix}…</code> — ${k.name}\n   └ dibuat ${k.created_at}${k.last_used_at ? ` • terakhir dipakai ${k.last_used_at}` : " • belum pernah dipakai"}`
+    );
+    return `🔑 <b>API Key kamu</b>\n\n${lines.join("\n\n")}\n\nRevoke: <code>/apikey revoke &lt;id&gt;</code>`;
+  }
+
+  if (subLower === "revoke") {
+    const keyId = parseInt(rest[0] || "", 10);
+    if (!keyId) return `⚠️ Format: <code>/apikey revoke &lt;id&gt;</code>\n\nLihat ID via <code>/apikey list</code>`;
+    const ok = await revokeApiKey(env.DB, userId, keyId);
+    return ok ? `✅ API key #${keyId} sudah direvoke.` : `❌ API key #${keyId} tidak ditemukan.`;
+  }
+
+  return `🔑 <b>API Key Management</b>
+
+Buat key untuk akses REST API <code>/api/v1</code>:
+
+• <code>/apikey create nama-key</code> — buat key baru
+• <code>/apikey list</code> — lihat semua key
+• <code>/apikey revoke &lt;id&gt;</code> — cabut key
+
+Header auth: <code>X-API-Key</code> atau <code>Authorization: Bearer</code>`;
 }
 
 // Search emails

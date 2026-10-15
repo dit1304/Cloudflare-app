@@ -59,6 +59,18 @@ export interface BlacklistEntry {
   created_at: string;
 }
 
+export interface ApiKey {
+  id: number;
+  user_id: number;
+  name: string;
+  key_hash?: string;
+  key_prefix: string;
+  is_active: number;
+  rate_limit_per_min: number;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 export interface CustomDomain {
   id: number;
   user_id: number;

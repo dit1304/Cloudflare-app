@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### 🔌 Major Feature: REST API (`/api/v1`)
+
+#### Programmatic access via JSON API
+- **API key auth**: header `X-API-Key` atau `Authorization: Bearer`; key dibuat via `/apikey` di Telegram (hash SHA-256 disimpan, key asli tampil sekali)
+- **Endpoints**: `GET /health`, `GET /domains`, CRUD alamat (`POST/GET/DELETE /addresses`), inbox (`GET /addresses/:id/messages`, `GET /messages/:id`)
+- **Keamanan**: CORS, rate limit 60 req/menit per key (D1 sliding window, fail-open), scope per user, format error konsisten
+- **Migrasi DB baru**: `src/db/migrations/add_api_keys.sql` (`npm run db:migrate:apikeys`)
+- **Perintah bot baru**: `/apikey create|list|revoke`
+
 ## [2.2.0] - 2024-02-07
 
 ### 🌐 Major Feature: Custom Domain System

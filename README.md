@@ -162,6 +162,72 @@ FREE_MAX_INBOX: 50        // Max inbox messages
 
 Edit di `src/types/index.ts` untuk customize limits.
 
+## 🔌 REST API (`/api/v1`)
+
+Selain bot Telegram, worker ini menyediakan REST API berformat JSON.
+
+### Buat API Key
+
+Via Telegram:
+
+```
+/apikey create nama-key   # key ditampilkan sekali — simpan baik-baik!
+/apikey list              # lihat semua key
+/apikey revoke <id>       # cabut key
+```
+
+Lalu jalankan migrasi database:
+
+```bash
+npm run db:migrate:apikeys
+```
+
+### Autentikasi
+
+Setiap request (kecuali `/health`) wajib menyertakan header:
+
+```
+X-API-Key: tmail_...
+# atau
+Authorization: Bearer tmail_...
+```
+
+Rate limit default: 60 request/menit per key (bisa diubah per key di kolom `rate_limit_per_min`).
+
+### Endpoints
+
+| Method | Endpoint | Deskripsi |
+|--------|----------|-----------|
+| GET | `/api/v1/health` | Health check (tanpa auth) |
+| GET | `/api/v1/domains` | Daftar domain tersedia |
+| POST | `/api/v1/addresses` | Buat alamat. Body: `{ "local_part": "tokoku", "domain": "zsmail.me" }` (`local_part` opsional → random) |
+| GET | `/api/v1/addresses` | List alamat + `unread_count` |
+| GET | `/api/v1/addresses/:id` | Detail alamat |
+| DELETE | `/api/v1/addresses/:id` | Nonaktifkan alamat |
+| GET | `/api/v1/addresses/:id/messages?limit=20&unread_only=true` | List pesan masuk |
+| GET | `/api/v1/messages/:id` | Baca pesan lengkap (otomatis tandai dibaca) |
+
+Format error konsisten: `{ "error": { "code": "...", "message": "..." } }`.
+
+Contoh:
+
+```bash
+# Buat alamat baru
+curl -X POST https://<worker>/api/v1/addresses \
+  -H "X-API-Key: tmail_..." \
+  -H "Content-Type: application/json" \
+  -d '{"local_part":"tokoku"}'
+
+# Baca inbox
+curl -H "X-API-Key: tmail_..." \
+  "https://<worker>/api/v1/addresses/1/messages?unread_only=true"
+```
+
+Catatan:
+- API key terikat ke user Telegram pemiliknya — hanya bisa akses alamat & pesan miliknya sendiri.
+- Batas alamat gratis (3/user) tetap berlaku untuk pembuatan via API.
+- v1 hanya mendukung domain bawaan bot (custom domain belum didukung via API).
+
 ## 🌐 Custom Domain Feature (Premium)
 
 ### How It Works
