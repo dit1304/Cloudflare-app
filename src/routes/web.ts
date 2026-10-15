@@ -45,31 +45,26 @@ table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
 th,td{text-align:left;padding:8px;border-bottom:1px solid #232c44;vertical-align:top}
 th{color:#9aa7c7;font-weight:600}
 .hide{display:none}
+.dropdown{position:absolute;top:46px;right:0;background:#161d31;border:1px solid #232c44;border-radius:10px;min-width:170px;z-index:50;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.mi{padding:12px 14px;font-size:14px;cursor:pointer}
+.mi:hover{background:#1d2540}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header>
 <h1>📧 Zero TempMail</h1>
+<div style="display:flex;align-items:center;gap:8px;position:relative">
 <span class="badge" id="keyBadge">tanpa API key</span>
+<button class="ghost" id="menuBtn" style="padding:8px 12px;font-size:18px;line-height:1">⋮</button>
+<div class="dropdown hide" id="menuDrop">
+<div class="mi" id="mMails">📧 Mails</div>
+<div class="mi" id="mApi">🔑 API Key</div>
+</div>
+</div>
 </header>
 
-<div class="card">
-<h2>🔑 Kunci API</h2>
-<div class="row">
-<input type="password" id="keyInput" placeholder="tmail_..." autocomplete="off">
-<button id="saveKey">Simpan</button>
-<button class="ghost" id="clearKey">Hapus</button>
-</div>
-<div class="muted" style="margin-top:10px">Cara mendapatkan key:</div>
-<ol class="guide">
-<li>Buka bot di Telegram</li>
-<li>Kirim <code>/apikey create web</code></li>
-<li>Bot membalas key sekali — copy lalu paste di atas</li>
-</ol>
-<div class="err hide" id="keyErr"></div>
-</div>
-
+<div id="viewMails">
 <div class="card">
 <h2>📧 Alamat Email</h2>
 <div class="row">
@@ -92,6 +87,24 @@ th{color:#9aa7c7;font-weight:600}
 <div id="msgDetail"></div>
 </div>
 
+</div>
+<div id="viewApi" class="hide">
+<div class="card">
+<h2>🔑 Kunci API</h2>
+<div class="row">
+<input type="password" id="keyInput" placeholder="tmail_..." autocomplete="off">
+<button id="saveKey">Simpan</button>
+<button class="ghost" id="clearKey">Hapus</button>
+</div>
+<div class="muted" style="margin-top:10px">Cara mendapatkan key:</div>
+<ol class="guide">
+<li>Buka bot di Telegram</li>
+<li>Kirim <code>/apikey create web</code></li>
+<li>Bot membalas key sekali — copy lalu paste di atas</li>
+</ol>
+<div class="err hide" id="keyErr"></div>
+</div>
+
 <div class="card">
 <h2>🔌 Panduan API</h2>
 <div class="muted">Semua endpoint di bawah memakai header <code>X-API-Key</code>.</div>
@@ -108,7 +121,8 @@ th{color:#9aa7c7;font-weight:600}
   https://HOST/api/v1/addresses</pre>
 </div>
 </div>
-<div class="muted" style="text-align:center;margin-top:4px">Made by <a href="https://t.me/kakatiri" style="color:#2f6bff">@kakatiri</a></div>
+<div class="muted" style="text-align:center;margin-top:4px"></div>
+Made by <a href="https://t.me/kakatiri" style="color:#2f6bff">@kakatiri</a></div>
 
 <script>
 var API = 'api/v1';
@@ -217,6 +231,22 @@ async function readMsg(id, el){
     d.scrollIntoView();
   }catch(e){ showErr('inboxErr', e.message); }
 }
+function showView(name){
+  document.getElementById('viewMails').className = name === 'mails' ? '' : 'hide';
+  document.getElementById('viewApi').className = name === 'api' ? '' : 'hide';
+  document.getElementById('menuDrop').className = 'dropdown hide';
+  if(name === 'mails' && getKey()){ loadDomains(); loadAddrs(); }
+  window.scrollTo(0, 0);
+}
+document.getElementById('menuBtn').onclick = function(e){
+  e.stopPropagation();
+  document.getElementById('menuDrop').classList.toggle('hide');
+};
+document.getElementById('mMails').onclick = function(){ showView('mails'); };
+document.getElementById('mApi').onclick = function(){ showView('api'); };
+document.addEventListener('click', function(){
+  document.getElementById('menuDrop').className = 'dropdown hide';
+});
 document.getElementById('saveKey').onclick = function(){
   var v = document.getElementById('keyInput').value.trim();
   if(!v){ showErr('keyErr', 'Paste API key dulu.'); return; }
