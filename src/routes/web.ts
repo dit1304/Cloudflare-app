@@ -285,7 +285,7 @@ async function loadAddrs(){
     sel.innerHTML = '';
     list.forEach(function(a){
       var o = document.createElement('option');
-      o.value = a.id; o.textContent = a.email_address;
+      o.value = a.id; o.textContent = a.address;
       sel.appendChild(o);
     });
     if(cur) sel.value = cur;
@@ -299,7 +299,7 @@ async function loadAddrs(){
       div.className = 'addr';
       var badge = a.unread_count > 0
         ? '<span class="unread"><span class="dot"></span>' + a.unread_count + ' baru</span>' : '';
-      div.innerHTML = '<span class="a">' + esc(a.email_address) + ' ' + badge + '</span>' +
+      div.innerHTML = '<span class="a">' + esc(a.address) + ' ' + badge + '</span>' +
         '<div class="actions">' +
         '<button class="iconbtn" data-act="copy" title="Salin alamat">' + ICONS.copy + '</button>' +
         '<button class="iconbtn" data-act="inbox" title="Buka inbox">' + ICONS.inbox + '</button>' +
@@ -309,10 +309,10 @@ async function loadAddrs(){
         var done = function(){ this.innerHTML = ICONS.check; var b = this;
           setTimeout(function(){ b.innerHTML = ICONS.copy; }, 1200); };
         if(navigator.clipboard && navigator.clipboard.writeText){
-          navigator.clipboard.writeText(a.email_address).then(done.bind(this)).catch(function(){});
+          navigator.clipboard.writeText(a.address).then(done.bind(this)).catch(function(){});
         } else {
           var t = document.createElement('textarea');
-          t.value = a.email_address; document.body.appendChild(t); t.select();
+          t.value = a.address; document.body.appendChild(t); t.select();
           try{ document.execCommand('copy'); }catch(e){}
           document.body.removeChild(t); done.call(this);
         }
@@ -322,7 +322,7 @@ async function loadAddrs(){
         loadInbox();
       };
       div.querySelector('[data-act="del"]').onclick = async function(){
-        if(!confirm('Hapus ' + a.email_address + ' beserta semua pesannya?')) return;
+        if(!confirm('Hapus ' + a.address + ' beserta semua pesannya?')) return;
         try{ await api('/addresses/' + a.id, { method: 'DELETE' }); loadAddrs(); }
         catch(e){ showErr('addrErr', e.message); }
       };
