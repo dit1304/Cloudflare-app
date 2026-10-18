@@ -370,8 +370,7 @@ function buildAccountMenuKeyboard(lang: Language): any {
       { text: "⚙️ Pengaturan", callback_data: "action:settings" }
     ],
     [
-      { text: "🌐 Bahasa", callback_data: "action:lang" },
-      { text: "🌐 My Domains", callback_data: "action:mydomains" }
+      { text: "🌐 Bahasa", callback_data: "action:lang" }
     ],
     [
       { text: t(lang, "back_to_menu"), callback_data: "menu:main" }
@@ -1046,55 +1045,59 @@ ${lang === "id" ? "Pilih bahasa:" : "Select language:"}`,
       return handleDomains(env);
 
     case "/requestdomain":
-      return await handleRequestDomain(env, telegramUserId, arg);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/mydomains":
-      return await handleMyDomains(env, telegramUserId);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/setupdomain":
-      return await handleSetupDomain(env, telegramUserId, arg);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/verifydomain":
-      return await handleVerifyDomain(env, telegramUserId, arg);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/canceldomain":
-      return await handleCancelDomain(env, telegramUserId, arg);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/domainrequests":
-      if (!isAdmin) {
-        return t(lang, "admin_only");
-      }
-      return await handleDomainRequests(env, telegramUserId);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/approvedomain":
-      if (!isAdmin) {
-        return t(lang, "admin_only");
-      }
-      return await handleApproveDomain(env, telegramUserId, arg);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/rejectdomain":
-      if (!isAdmin) {
-        return t(lang, "admin_only");
-      }
-      return await handleRejectDomain(env, telegramUserId, arg);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/activatedomain":
-      if (!isAdmin) {
-        return t(lang, "admin_only");
-      }
-      return await handleActivateDomain(env, telegramUserId, arg);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/suspenddomain":
-      if (!isAdmin) {
-        return t(lang, "admin_only");
-      }
-      return await handleSuspendDomain(env, telegramUserId, arg);
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     case "/listdomains":
-      if (!isAdmin) {
-        return t(lang, "admin_only");
-      }
-      return await handleListDomains(env, telegramUserId, arg || 'all');
+      return lang === 'id'
+      ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+      : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`;
 
     default:
       // Show menu for unrecognized commands
@@ -1306,7 +1309,12 @@ Made with ❤️ by @kakatiri`,
         
         // Custom Domain Actions
         case "mydomains":
-          return await handleMyDomains(env, telegramUserId);
+          return {
+            text: lang === 'id'
+              ? `⏸️ <b>Fitur custom domain nonaktif sementara.</b>\n\nAlurnya sedang dibenahi agar benar-benar bisa menerima email.`
+              : `⏸️ <b>Custom domain feature is temporarily disabled.</b>\n\nThe flow is being fixed so it can actually receive email.`,
+            keyboard: buildBackButton("menu:account", lang)
+          };
         
         case "request_domain_prompt":
           return {
@@ -2998,12 +3006,7 @@ async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolea
 `<b>/apikey</b>\n${id ? '→ Buat & kelola API key (untuk web & API)' : '→ Create & manage API keys (for web & API)'}\n\n` +
 `<b>/mystats</b> ${id ? 'atau' : 'or'} <b>/me</b>\n${id ? '→ Statistik akunmu' : '→ Your account stats'}\n\n` +
 `<b>/setting</b>\n${id ? '→ Pengaturan (auto-delete, dll)' : '→ Settings (auto-delete, etc)'}\n\n` +
-`<b>/lang</b>\n${id ? '→ Ganti bahasa' : '→ Change language'}\n\n` +
-`<b>/requestdomain</b> <code>domain.com</code>\n${id ? '→ Request custom domain (Premium)' : '→ Request a custom domain (Premium)'}\n\n` +
-`<b>/mydomains</b> ${id ? '→ Domain custom milikmu' : '→ Your custom domains'}\n` +
-`<b>/setupdomain</b> ${id ? '→ Lihat DNS yang harus dipasang' : '→ Show DNS records to set up'}\n` +
-`<b>/verifydomain</b> ${id ? '→ Minta verifikasi DNS' : '→ Request DNS verification'}\n` +
-`<b>/canceldomain</b> ${id ? '→ Batalkan request domain' : '→ Cancel a domain request'}`;
+`<b>/lang</b>\n${id ? '→ Ganti bahasa' : '→ Change language'}`;
 
   // Bagian admin: hanya terlihat oleh admin
   if (isAdmin) {
@@ -3013,11 +3016,7 @@ async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolea
 `<b>/premium</b> ${id ? 'atau' : 'or'} <b>/p</b> <code>add/del ID</code> ${id ? '→ Kelola premium' : '→ Manage premium'}\n` +
 `<b>/blacklist</b> <code>add/del ${id ? 'pola' : 'pattern'}</code> ${id ? '→ Blacklist pengirim' : '→ Sender blacklist'}\n` +
 `<b>/broadcast</b> ${id ? 'atau' : 'or'} <b>/bc</b> <code>${id ? 'pesan' : 'message'}</code> ${id ? '→ Pengumuman ke semua user' : '→ Announce to all users'}\n` +
-`<b>/cleanup</b> ${id ? '→ Hapus email lama' : '→ Delete old emails'}\n` +
-`<b>/domainrequests</b> ${id ? '→ Request domain pending' : '→ Pending domain requests'}\n` +
-`<b>/approvedomain</b> / <b>/rejectdomain</b> ${id ? '→ Setujui/tolak domain' : '→ Approve/reject domain'}\n` +
-`<b>/activatedomain</b> / <b>/suspenddomain</b> ${id ? '→ Aktif/nonaktifkan domain' : '→ Activate/suspend domain'}\n` +
-`<b>/listdomains</b> ${id ? '→ Semua custom domain' : '→ All custom domains'}`;
+`<b>/cleanup</b> ${id ? '→ Hapus email lama' : '→ Delete old emails'}`;
   }
 
   message += `\n\n━━━━━━━━━━━━━━━\n${id ? '💡 Gunakan /menu untuk navigasi dengan tombol' : '💡 Use /menu for button navigation'}`;
