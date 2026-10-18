@@ -123,6 +123,10 @@ pre.curl{background:#221b14;color:#f5eeda;padding:14px;border-radius:10px;font-s
 .empty{border:2px dashed var(--line);border-radius:10px;padding:20px;text-align:center;
   color:var(--muted);font-size:14px;margin-top:10px}
 .hide{display:none}
+.backbtn{background:transparent;border:none;box-shadow:none;color:var(--ink);
+  padding:4px 0;font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:6px}
+.backbtn svg{width:16px;height:16px}
+.backbtn:active{transform:none;box-shadow:none}
 footer{margin-top:26px;text-align:center;font-size:13px;color:var(--muted)}
 footer a{color:var(--accent);font-weight:700;text-decoration:none}
 footer a:hover{text-decoration:underline}
@@ -189,7 +193,7 @@ footer a:hover{text-decoration:underline}
     </div>
     <div class="err" id="inboxErr"></div>
     <div id="inboxList"></div>
-    <div id="msgDetail"></div>
+    <div id="msgDetail" class="hide"></div>
   </section>
 </div>
 
@@ -241,7 +245,8 @@ var ICONS = {
   inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
-  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>'
 };
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function getKey(){ return localStorage.getItem('ztm_key') || ''; }
@@ -334,7 +339,8 @@ async function loadInbox(){
   showErr('inboxErr', '');
   var id = document.getElementById('inboxSel').value;
   var list = document.getElementById('inboxList');
-  document.getElementById('msgDetail').innerHTML = '';
+  var det = document.getElementById('msgDetail');
+  det.innerHTML = ''; det.classList.add('hide'); list.classList.remove('hide');
   if(!id){ list.innerHTML = '<div class="empty">Pilih alamat dulu.</div>'; return; }
   try{
     var d = await api('/addresses/' + id + '/messages');
@@ -360,8 +366,7 @@ async function readMsg(id, el){
     var m = await api('/messages/' + id);
     var d = document.getElementById('msgDetail');
     d.innerHTML = '<div class="detail">' +
-      '<div class="dhead"><b>Isi pesan</b>' +
-      '<button class="iconbtn" id="closeDetail" title="Tutup" style="width:32px;height:32px">' + ICONS.x + '</button></div>' +
+      '<div class="dhead"><button class="backbtn" id="backBtn">' + ICONS.back + 'Kembali ke daftar</button></div>' +
       '<div class="meta">' +
       '<div><span class="k">KE</span>' + esc(m.address || '') + '</div>' +
       '<div><span class="k">DARI</span>' + esc(m.sender) + '</div>' +
@@ -369,9 +374,13 @@ async function readMsg(id, el){
       '</div>' +
       '<div class="subject">' + esc(m.subject || '(tanpa subjek)') + '</div>' +
       '<pre>' + esc(m.body || '(kosong)') + '</pre></div>';
-    document.getElementById('closeDetail').onclick = function(){ d.innerHTML = ''; };
+    var listEl = document.getElementById('inboxList');
+    document.getElementById('backBtn').onclick = function(){
+      d.innerHTML = ''; d.classList.add('hide'); listEl.classList.remove('hide');
+    };
+    listEl.classList.add('hide'); d.classList.remove('hide');
     if(el) el.classList.remove('is-unread');
-    d.scrollIntoView({ block: 'nearest' });
+    d.scrollIntoView();
   }catch(e){ showErr('inboxErr', e.message); }
 }
 function showView(name){
