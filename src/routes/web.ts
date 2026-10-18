@@ -125,6 +125,13 @@ pre.curl{background:#221b14;color:#f5eeda;padding:14px;border-radius:10px;font-s
 .hide{display:none}
 .pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px}
 .pginfo{font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap}
+.otpbox{margin:12px 14px 0;border:2px dashed var(--accent);border-radius:10px;padding:12px 14px;background:#fff7ef}
+.otpbox .k{font-size:10px;font-weight:800;letter-spacing:.1em;color:var(--accent)}
+.otprow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+.otprow code{font-size:22px;font-weight:800;letter-spacing:.12em;background:none;border:none;padding:0}
+.tgl-dot{width:9px;height:9px;border-radius:50%;background:#b3a98f;display:inline-block;flex-shrink:0}
+#autoBtn.on{border-color:var(--green)}
+#autoBtn.on .tgl-dot{background:var(--green);box-shadow:0 0 6px rgba(47,158,68,.9)}
 .backbtn{background:transparent;border:none;box-shadow:none;color:var(--ink);
   padding:4px 0;font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:6px}
 .backbtn svg{width:16px;height:16px}
@@ -193,6 +200,7 @@ footer a:hover{text-decoration:underline}
     <div class="row">
       <select id="inboxSel"></select>
       <button id="loadInboxBtn" class="secondary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>Muat</button>
+      <button id="autoBtn" class="secondary" title="Refresh inbox otomatis tiap 15 detik"></button>
     </div>
     <div class="err" id="inboxErr"></div>
     <div id="inboxList"></div>
@@ -358,6 +366,45 @@ function renderAddrPage(box, totalPages){
     document.getElementById('pgNext').onclick = function(){ if(addrPage < totalPages){ addrPage++; renderAddrPage(box, totalPages); } };
   }
 }
+function findOtps(text){
+  var codes = [], seen = {};
+  function push(c){
+    c = c.replace(/[\s-]/g, '');
+    if(!/^\d{4,8}$/.test(c)) return;
+    if(c.length === 4 && /^(19|20)/.test(c)) return;
+    if(seen[c]) return;
+    seen[c] = 1; codes.push(c);
+  }
+  var m, re;
+  re = /\b\d{3}[\s-]\d{3}\b/g;
+  while((m = re.exec(text)) && codes.length < 3) push(m[0]);
+  re = /\b\d{4,8}\b/g;
+  while((m = re.exec(text)) && codes.length < 3) push(m[0]);
+  codes.sort(function(a, b){ return ((b.length === 6) ? 1 : 0) - ((a.length === 6) ? 1 : 0); });
+  return codes.slice(0, 3);
+}
+var autoTimer = null;
+var AUTO_MS = 15000;
+function paintAutoBtn(){
+  var b = document.getElementById('autoBtn');
+  var on = !!autoTimer;
+  b.classList.toggle('on', on);
+  b.innerHTML = '<span class="tgl-dot"></span> ' + (on ? 'Auto nyala' : 'Auto mati');
+}
+function autoTick(){
+  if(document.hidden || !getKey()) return;
+  if(document.getElementById('viewMails').classList.contains('hide')) return;
+  if(document.getElementById('inboxCard').classList.contains('hide')) return;
+  if(!document.getElementById('msgDetail').classList.contains('hide')) return;
+  var id = document.getElementById('inboxSel').value;
+  if(id) loadInbox();
+}
+function setAuto(on){
+  if(on && !autoTimer) autoTimer = setInterval(autoTick, AUTO_MS);
+  if(!on && autoTimer){ clearInterval(autoTimer); autoTimer = null; }
+  try{ localStorage.setItem('ztm_auto', on ? '1' : '0'); }catch(e){}
+  paintAutoBtn();
+}
 async function loadInbox(){
   showErr('inboxErr', '');
   var id = document.getElementById('inboxSel').value;
@@ -388,6 +435,15 @@ async function readMsg(id, el){
   try{
     var m = await api('/messages/' + id);
     var d = document.getElementById('msgDetail');
+    var otpCodes = findOtps(m.body || '');
+    var otpHtml = '';
+    if(otpCodes.length){
+      otpHtml = '<div class="otpbox"><span class="k">KODE OTP TERDETEKSI</span>' +
+        otpCodes.map(function(c, i){
+          return '<div class="otprow"><code>' + esc(c) + '</code>' +
+            '<button class="iconbtn" data-otp="' + i + '" title="Salin kode">' + ICONS.copy + '</button></div>';
+        }).join('') + '</div>';
+    }
     d.innerHTML = '<div class="detail">' +
       '<div class="dhead"><button class="backbtn" id="backBtn">' + ICONS.back + 'Kembali ke daftar</button></div>' +
       '<div class="meta">' +
@@ -396,7 +452,9 @@ async function readMsg(id, el){
       '<div><span class="k">WAKTU</span>' + esc(m.received_at || '') + '</div>' +
       '</div>' +
       '<div class="subject">' + esc(m.subject || '(tanpa subjek)') + '</div>' +
+      otpHtml +
       '<pre>' + esc(m.body || '(kosong)') + '</pre></div>';
+    wireOtpCopy(d, otpCodes);
     var listEl = document.getElementById('inboxList');
     document.getElementById('backBtn').onclick = function(){
       d.innerHTML = ''; d.classList.add('hide'); listEl.classList.remove('hide');
@@ -412,6 +470,25 @@ function openAddrInbox(id){
   document.getElementById('inboxSel').value = id;
   loadInbox();
   document.getElementById('inboxCard').scrollIntoView();
+}
+function copyText(t, btn){
+  var done = function(){ btn.innerHTML = ICONS.check; setTimeout(function(){ btn.innerHTML = ICONS.copy; }, 1200); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(function(){});
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = t; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta); done();
+  }
+}
+function wireOtpCopy(root, codes){
+  var btns = root.querySelectorAll('[data-otp]');
+  for(var i = 0; i < btns.length; i++){
+    (function(b, code){
+      b.onclick = function(){ copyText(code, b); };
+    })(btns[i], codes[i]);
+  }
 }
 function showView(name){
   document.getElementById('viewMails').className = name === 'mails' ? '' : 'hide';
@@ -460,6 +537,9 @@ document.getElementById('createBtn').onclick = async function(){
   }catch(e){ showErr('addrErr', e.message); }
 };
 document.getElementById('loadInboxBtn').onclick = loadInbox;
+document.getElementById('autoBtn').onclick = function(){ setAuto(!autoTimer); };
+paintAutoBtn();
+try{ if(localStorage.getItem('ztm_auto') === '1' && getKey()) setAuto(true); }catch(e){}
 document.getElementById('inboxSel').onchange = loadInbox;
 refreshBadge();
 if(getKey()){ loadDomains(); loadAddrs(); }
