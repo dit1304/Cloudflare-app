@@ -74,7 +74,7 @@ button:disabled{opacity:.5;cursor:default;transform:none}
 /* ---------- addresses ---------- */
 .addr{display:flex;flex-direction:column;gap:10px;padding:12px 14px;
   border:2px solid var(--ink);border-radius:10px;margin-top:10px;background:#fff}
-.addr .a{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+.addr .a{cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
   overflow-wrap:anywhere;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .addr .actions{display:flex;gap:8px;width:100%}
 .addr .actions .iconbtn{flex:1}
@@ -168,7 +168,7 @@ footer a:hover{text-decoration:underline}
 </header>
 
 <div id="viewMails">
-  <section class="card">
+  <section class="card" id="addrCard">
     <div class="cardhead">
       <span class="cardicon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
       <h2>Alamat baru</h2>
@@ -182,7 +182,8 @@ footer a:hover{text-decoration:underline}
     <div id="addrsList"><div class="empty">Memuat…</div></div>
   </section>
 
-  <section class="card">
+  <section class="card hide" id="inboxCard">
+    <div style="margin-bottom:12px"><button class="backbtn" id="backAddrs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>Kembali ke daftar alamat</button></div>
     <div class="cardhead">
       <span class="cardicon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span>
       <h2>Inbox</h2>
@@ -322,10 +323,8 @@ async function loadAddrs(){
           document.body.removeChild(t); done.call(this);
         }
       };
-      div.querySelector('[data-act="inbox"]').onclick = function(){
-        document.getElementById('inboxSel').value = a.id;
-        loadInbox();
-      };
+      div.querySelector('[data-act="inbox"]').onclick = function(){ openAddrInbox(a.id); };
+      div.querySelector('.a').onclick = function(){ openAddrInbox(a.id); };
       div.querySelector('[data-act="del"]').onclick = async function(){
         if(!confirm('Hapus ' + a.address + ' beserta semua pesannya?')) return;
         try{ await api('/addresses/' + a.id, { method: 'DELETE' }); loadAddrs(); }
@@ -383,6 +382,13 @@ async function readMsg(id, el){
     d.scrollIntoView();
   }catch(e){ showErr('inboxErr', e.message); }
 }
+function openAddrInbox(id){
+  document.getElementById('addrCard').classList.add('hide');
+  document.getElementById('inboxCard').classList.remove('hide');
+  document.getElementById('inboxSel').value = id;
+  loadInbox();
+  document.getElementById('inboxCard').scrollIntoView();
+}
 function showView(name){
   document.getElementById('viewMails').className = name === 'mails' ? '' : 'hide';
   document.getElementById('viewApi').className = name === 'api' ? '' : 'hide';
@@ -395,6 +401,12 @@ document.getElementById('menuBtn').onclick = function(e){
   document.getElementById('menuDrop').classList.toggle('hide');
 };
 document.getElementById('mMails').onclick = function(){ showView('mails'); };
+document.getElementById('backAddrs').onclick = function(){
+  document.getElementById('inboxCard').classList.add('hide');
+  document.getElementById('addrCard').classList.remove('hide');
+  window.scrollTo(0, 0);
+  loadAddrs();
+};
 document.getElementById('mApi').onclick = function(){ showView('api'); };
 document.addEventListener('click', function(){
   document.getElementById('menuDrop').className = 'dropdown hide';
