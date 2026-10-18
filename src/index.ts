@@ -2977,49 +2977,51 @@ Ini akan generate QR code untuk secret tersimpan.`;
 async function getHelpMessage(db: D1Database, domains: string[], isAdmin: boolean, telegramUserId: string): Promise<CommandResponse> {
   const lang = getLang(await getUserLanguage(db, telegramUserId));
   const id = lang === 'id';
+  const T = (a: string, b: string) => id ? a : b;
+  const c = (cmd: string, dId: string, dEn: string) => `• <b>${cmd}</b> → ${T(dId, dEn)}\n`;
 
-  const title = id ? `🎉 <b>Selamat datang di Temp Email Bot!</b>` : `🎉 <b>Welcome to Temp Email Bot!</b>`;
-  const desc = id
-    ? `Buat email sementara, baca inbox, dan kelola kode 2FA/OTP.`
-    : `Create temporary emails, read the inbox, and manage 2FA/OTP codes.`;
-  const webInfo = id
-    ? `🌐 <b>Versi Web:</b> https://temp.zsecret.me\nKelola email & API key langsung dari browser.`
-    : `🌐 <b>Web Version:</b> https://temp.zsecret.me\nManage emails & API keys right from your browser.`;
+  const title = `🎉 <b>${T('Selamat datang di Temp Email Bot!', 'Welcome to Temp Email Bot!')}</b>`;
+  const desc = T('Buat email sementara, baca inbox, dan kelola kode 2FA/OTP.',
+    'Create temporary emails, read the inbox, and manage 2FA/OTP codes.');
+  const webInfo = `🌐 <b>${T('Versi Web', 'Web Version')}:</b> https://temp.zsecret.me\n` +
+    T('Kelola email & API key langsung dari browser.', 'Manage emails & API keys right from your browser.');
 
-  let message = `${title}\n\n${desc}\n\n${webInfo}\n\n━━━ 📧 <b>EMAIL</b> ━━━\n\n` +
-`<b>/create</b> ${id ? 'atau' : 'or'} <b>/c</b> <code>nama</code>\n${id ? '→ Buat alamat email baru' : '→ Create a new email address'}\n\n` +
-`<b>/list</b> ${id ? 'atau' : 'or'} <b>/e</b>\n${id ? '→ Daftar semua email kamu' : '→ List all your emails'}\n\n` +
-`<b>/mails</b> ${id ? 'atau' : 'or'} <b>/m</b> <code>nama</code>\n${id ? '→ Lihat inbox sebuah alamat' : '→ View an address inbox'}\n\n` +
-`<b>/read</b> ${id ? 'atau' : 'or'} <b>/r</b> <code>ID</code>\n${id ? '→ Baca isi email lengkap' : '→ Read the full email'}\n\n` +
-`<b>/search</b> ${id ? 'atau' : 'or'} <b>/s</b> <code>kata</code>\n${id ? '→ Cari email' : '→ Search emails'}\n\n` +
-`<b>/delete</b> ${id ? 'atau' : 'or'} <b>/d</b> <code>nama</code>\n${id ? '→ Hapus email milikmu' : '→ Delete your email'}\n\n` +
-`<b>/export</b> <code>ID</code>\n${id ? '→ Unduh email sebagai file .txt' : '→ Download email as a .txt file'}\n\n` +
-`<b>/domains</b>\n${id ? '→ Lihat domain yang tersedia' : '→ List available domains'}\n\n` +
-`━━━ 🔐 <b>2FA/OTP</b> ━━━\n\n` +
-`<b>/2fa</b> ${id ? 'atau' : 'or'} <b>/a</b> <code>nama</code>\n${id ? '→ Generate kode OTP' : '→ Generate OTP code'}\n\n` +
-`<b>/2fa add</b> <code>nama SECRET</code>\n${id ? '→ Simpan secret baru' : '→ Save a new secret'}\n\n` +
-`<b>/2fa list</b>\n${id ? '→ Daftar secret tersimpan' : '→ List saved secrets'}\n\n` +
-`<b>/2fa del</b> <code>nama</code>\n${id ? '→ Hapus secret' : '→ Delete a secret'}\n\n` +
-`<b>/qr</b> <code>nama</code>\n${id ? '→ QR code secret (dibuat lokal, aman)' : '→ Secret QR code (generated locally, private)'}\n\n` +
-`<b>/backup</b>\n${id ? '→ Backup semua secret' : '→ Backup all secrets'}\n\n` +
-`━━━ 👤 <b>${id ? 'AKUN' : 'ACCOUNT'}</b> ━━━\n\n` +
-`<b>/apikey</b>\n${id ? '→ Buat & kelola API key (untuk web & API)' : '→ Create & manage API keys (for web & API)'}\n\n` +
-`<b>/mystats</b> ${id ? 'atau' : 'or'} <b>/me</b>\n${id ? '→ Statistik akunmu' : '→ Your account stats'}\n\n` +
-`<b>/setting</b>\n${id ? '→ Pengaturan (auto-delete, dll)' : '→ Settings (auto-delete, etc)'}\n\n` +
-`<b>/lang</b>\n${id ? '→ Ganti bahasa' : '→ Change language'}`;
+  let message =
+    `${title}\n\n${desc}\n\n${webInfo}\n\n` +
+    `━━━ 📧 <b>EMAIL</b> ━━━\n\n` +
+    c('/create <code>nama</code> (/c)', 'Buat alamat email baru', 'Create a new email address') +
+    c('/list (/e)', 'Daftar semua email kamu', 'List all your emails') +
+    c('/mails <code>nama</code> (/m)', 'Lihat inbox sebuah alamat', 'View an address inbox') +
+    c('/read <code>ID</code> (/r)', 'Baca isi email lengkap', 'Read the full email') +
+    c('/search <code>kata</code> (/s)', 'Cari email', 'Search emails') +
+    c('/delete <code>nama</code> (/d)', 'Hapus email milikmu', 'Delete your email') +
+    c('/export <code>ID</code>', 'Unduh email sebagai file .txt', 'Download email as a .txt file') +
+    c('/domains', 'Lihat domain yang tersedia', 'List available domains') +
+    `\n━━━ 🔐 <b>2FA/OTP</b> ━━━\n\n` +
+    c('/2fa <code>nama</code> (/a)', 'Generate kode OTP', 'Generate OTP code') +
+    c('/2fa add <code>nama SECRET</code>', 'Simpan secret baru', 'Save a new secret') +
+    c('/2fa list', 'Daftar secret tersimpan', 'List saved secrets') +
+    c('/2fa del <code>nama</code>', 'Hapus secret', 'Delete a secret') +
+    c('/qr <code>nama</code>', 'QR code secret (dibuat lokal, aman)', 'Secret QR code (generated locally, private)') +
+    c('/backup', 'Backup semua secret', 'Backup all secrets') +
+    `\n━━━ 👤 <b>${T('AKUN', 'ACCOUNT')}</b> ━━━\n\n` +
+    c('/apikey', 'Buat & kelola API key (untuk web & API)', 'Create & manage API keys (for web & API)') +
+    c('/mystats (/me)', 'Statistik akunmu', 'Your account stats') +
+    c('/setting', 'Pengaturan (auto-delete, dll)', 'Settings (auto-delete, etc)') +
+    c('/lang', 'Ganti bahasa', 'Change language');
 
   // Bagian admin: hanya terlihat oleh admin
   if (isAdmin) {
     message += `\n\n━━━ 🔧 <b>ADMIN</b> ━━━\n\n` +
-`<b>/stats</b> ${id ? '→ Statistik bot' : '→ Bot statistics'}\n` +
-`<b>/users</b> ${id ? 'atau' : 'or'} <b>/u</b> <code>[${id ? 'halaman' : 'page'}]</code> ${id ? '→ Daftar user' : '→ List users'}\n` +
-`<b>/premium</b> ${id ? 'atau' : 'or'} <b>/p</b> <code>add/del ID</code> ${id ? '→ Kelola premium' : '→ Manage premium'}\n` +
-`<b>/blacklist</b> <code>add/del ${id ? 'pola' : 'pattern'}</code> ${id ? '→ Blacklist pengirim' : '→ Sender blacklist'}\n` +
-`<b>/broadcast</b> ${id ? 'atau' : 'or'} <b>/bc</b> <code>${id ? 'pesan' : 'message'}</code> ${id ? '→ Pengumuman ke semua user' : '→ Announce to all users'}\n` +
-`<b>/cleanup</b> ${id ? '→ Hapus email lama' : '→ Delete old emails'}`;
+      c('/stats', 'Statistik bot', 'Bot statistics') +
+      c(`/users <code>[${T('halaman', 'page')}]</code> (/u)`, 'Daftar user', 'List users') +
+      c('/premium <code>add/del ID</code> (/p)', 'Kelola premium', 'Manage premium') +
+      c(`/blacklist <code>add/del ${T('pola', 'pattern')}</code>`, 'Blacklist pengirim', 'Sender blacklist') +
+      c(`/broadcast <code>${T('pesan', 'message')}</code> (/bc)`, 'Pengumuman ke semua user', 'Announce to all users') +
+      c('/cleanup', 'Hapus email lama', 'Delete old emails');
   }
 
-  message += `\n\n━━━━━━━━━━━━━━━\n${id ? '💡 Gunakan /menu untuk navigasi dengan tombol' : '💡 Use /menu for button navigation'}`;
+  message += `\n━━━━━━━━━━━━━━━\n${T('💡 Gunakan /menu untuk navigasi dengan tombol', '💡 Use /menu for button navigation')}`;
 
   return {
     text: message,
