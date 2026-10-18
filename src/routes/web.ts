@@ -126,8 +126,6 @@ pre.curl{background:#221b14;color:#f5eeda;padding:14px;border-radius:10px;font-s
 footer{margin-top:26px;text-align:center;font-size:13px;color:var(--muted)}
 footer a{color:var(--accent);font-weight:700;text-decoration:none}
 footer a:hover{text-decoration:underline}
-.stamp{display:inline-block;border:2px solid var(--muted);border-radius:6px;padding:2px 8px;
-  font-size:11px;transform:rotate(-3deg);margin-bottom:8px;letter-spacing:.05em}
 /* ---------- responsive ---------- */
 @media (min-width:640px){
   .addr{flex-direction:row;align-items:center;justify-content:space-between}
@@ -232,7 +230,6 @@ footer a:hover{text-decoration:underline}
 </div>
 
 <footer>
-  <div><span class="stamp">buatan manusia</span></div>
   Made by <a href="https://t.me/kakatiri">@kakatiri</a>
 </footer>
 
