@@ -123,6 +123,8 @@ pre.curl{background:#221b14;color:#f5eeda;padding:14px;border-radius:10px;font-s
 .empty{border:2px dashed var(--line);border-radius:10px;padding:20px;text-align:center;
   color:var(--muted);font-size:14px;margin-top:10px}
 .hide{display:none}
+.pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px}
+.pginfo{font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap}
 .backbtn{background:transparent;border:none;box-shadow:none;color:var(--ink);
   padding:4px 0;font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:6px}
 .backbtn svg{width:16px;height:16px}
@@ -247,7 +249,8 @@ var ICONS = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
-  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>'
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+  next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>'
 };
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function getKey(){ return localStorage.getItem('ztm_key') || ''; }
@@ -280,12 +283,16 @@ async function loadDomains(){
     });
   }catch(e){ showErr('addrErr', e.message); }
 }
+var ADDR_PER_PAGE = 10;
+var addrPage = 1;
+var addrCache = [];
 async function loadAddrs(){
   showErr('addrErr', '');
   var box = document.getElementById('addrsList');
   try{
     var d = await api('/addresses');
-    var list = d.addresses || [];
+    addrCache = d.addresses || [];
+    var list = addrCache;
     var sel = document.getElementById('inboxSel');
     var cur = sel.value;
     sel.innerHTML = '';
@@ -295,12 +302,20 @@ async function loadAddrs(){
       sel.appendChild(o);
     });
     if(cur) sel.value = cur;
-    if(list.length === 0){
-      box.innerHTML = '<div class="empty">Belum ada alamat. Buat dulu di atas.</div>';
-      return;
-    }
-    box.innerHTML = '';
-    list.forEach(function(a){
+    var totalPages = Math.max(1, Math.ceil(addrCache.length / ADDR_PER_PAGE));
+    if(addrPage > totalPages) addrPage = totalPages;
+    if(addrPage < 1) addrPage = 1;
+    renderAddrPage(box, totalPages);
+  }catch(e){ showErr('addrErr', e.message); }
+}
+function renderAddrPage(box, totalPages){
+  if(addrCache.length === 0){
+    box.innerHTML = '<div class="empty">Belum ada alamat. Buat dulu di atas.</div>';
+    return;
+  }
+  box.innerHTML = '';
+  var start = (addrPage - 1) * ADDR_PER_PAGE;
+  addrCache.slice(start, start + ADDR_PER_PAGE).forEach(function(a){
       var div = document.createElement('div');
       div.className = 'addr';
       var badge = a.unread_count > 0
@@ -332,7 +347,16 @@ async function loadAddrs(){
       };
       box.appendChild(div);
     });
-  }catch(e){ showErr('addrErr', e.message); }
+  if(totalPages > 1){
+    var nav = document.createElement('div');
+    nav.className = 'pager';
+    nav.innerHTML = '<button class="iconbtn" id="pgPrev" title="Halaman sebelumnya"' + (addrPage <= 1 ? ' disabled' : '') + '>' + ICONS.back + '</button>' +
+      '<span class="pginfo">Hal ' + addrPage + ' / ' + totalPages + '</span>' +
+      '<button class="iconbtn" id="pgNext" title="Halaman berikutnya"' + (addrPage >= totalPages ? ' disabled' : '') + '>' + ICONS.next + '</button>';
+    box.appendChild(nav);
+    document.getElementById('pgPrev').onclick = function(){ if(addrPage > 1){ addrPage--; renderAddrPage(box, totalPages); } };
+    document.getElementById('pgNext').onclick = function(){ if(addrPage < totalPages){ addrPage++; renderAddrPage(box, totalPages); } };
+  }
 }
 async function loadInbox(){
   showErr('inboxErr', '');
