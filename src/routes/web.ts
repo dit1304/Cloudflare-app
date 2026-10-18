@@ -246,7 +246,7 @@ var ICONS = {
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function getKey(){ return localStorage.getItem('ztm_key') || ''; }
 function setKey(k){ if(k) localStorage.setItem('ztm_key', k); else localStorage.removeItem('ztm_key'); }
-function showErr(id, msg){ document.getElementById(id).textContent = msg || ''; }
+function showErr(id, msg){ var t = (msg && msg.message) || msg || ''; document.getElementById(id).textContent = String(t); }
 function refreshBadge(){
   var b = document.getElementById('keyBadge');
   if(getKey()){ b.textContent = 'API key tersimpan'; b.className = 'badge on'; }
@@ -255,7 +255,11 @@ function refreshBadge(){
 async function api(path, opts){
   var r = await fetch(API + path, Object.assign({ headers: { 'X-API-Key': getKey() } }, opts || {}));
   var j = await r.json().catch(function(){ return {}; });
-  if(!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+  if(!r.ok){
+    var e = j && j.error;
+    var msg = typeof e === 'string' ? e : (e && (e.message || e.code)) || ('HTTP ' + r.status);
+    throw new Error(msg);
+  }
   return j;
 }
 async function loadDomains(){
@@ -397,6 +401,7 @@ document.getElementById('saveKey').onclick = function(){
 document.getElementById('createBtn').onclick = async function(){
   var local = document.getElementById('newLocal').value.trim().toLowerCase();
   var domain = document.getElementById('domainSel').value;
+  if(!getKey()){ showErr('addrErr', 'Isi API key dulu di menu API Key (pojok kanan atas).'); return; }
   if(!local){ showErr('addrErr', 'Isi dulu nama alamatnya.'); return; }
   try{
     await api('/addresses', {
