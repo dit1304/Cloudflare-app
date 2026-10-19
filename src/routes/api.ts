@@ -180,6 +180,20 @@ api.get('/addresses/:id/messages', async (c) => {
   return c.json({ messages: items });
 });
 
+api.post('/addresses/:id/read-all', async (c) => {
+  const apiKey = c.get('apiKey');
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return err(c, 400, 'invalid_id', 'ID alamat tidak valid.');
+  const owner = await c.env.DB.prepare('SELECT id FROM emails WHERE id = ? AND user_id = ?')
+    .bind(id, apiKey.user_id)
+    .first();
+  if (!owner) return err(c, 404, 'not_found', 'Alamat tidak ditemukan.');
+  const res = await c.env.DB.prepare(
+    `UPDATE inbox SET is_read = 1 WHERE email_id = ? AND is_read = 0`
+  ).bind(id).run();
+  return c.json({ ok: true, marked: res.meta.changes ?? 0 });
+});
+
 api.get('/messages/:id', async (c) => {
   const apiKey = c.get('apiKey');
   const id = Number(c.req.param('id'));

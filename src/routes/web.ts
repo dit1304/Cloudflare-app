@@ -204,6 +204,7 @@ footer a:hover{text-decoration:underline}
       <select id="inboxSel"></select>
       <button id="loadInboxBtn" class="secondary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>Muat</button>
       <button id="autoBtn" class="secondary" title="Refresh inbox otomatis tiap 15 detik"></button>
+      <button id="readAllBtn" class="secondary" title="Tandai semua pesan di alamat ini sebagai dibaca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 6 7 17 2 12"/><polyline points="22 10 13 19 11 17"/></svg>Tandai dibaca</button>
     </div>
     <div class="err" id="inboxErr"></div>
     <div id="newMailBanner" class="newbanner hide"></div>
@@ -575,6 +576,18 @@ document.getElementById('createBtn').onclick = async function(){
   }catch(e){ showErr('addrErr', e.message); }
 };
 document.getElementById('loadInboxBtn').onclick = loadInbox;
+document.getElementById('readAllBtn').onclick = async function(){
+  var id = document.getElementById('inboxSel').value;
+  if(!id) return;
+  var btn = this;
+  btn.disabled = true;
+  try{
+    await api('/addresses/' + id + '/read-all', { method: 'POST' });
+    loadInbox();
+    loadAddrs();
+  }catch(e){ showErr('inboxErr', e.message); }
+  btn.disabled = false;
+};
 document.getElementById('autoBtn').onclick = function(){ setAuto(!autoTimer); };
 paintAutoBtn();
 try{ if(localStorage.getItem('ztm_auto') === '1' && getKey()) setAuto(true); }catch(e){}
