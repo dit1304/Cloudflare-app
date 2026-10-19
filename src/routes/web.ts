@@ -125,6 +125,9 @@ pre.curl{background:#221b14;color:#f5eeda;padding:14px;border-radius:10px;font-s
 .hide{display:none}
 .pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px}
 .pginfo{font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap}
+.newbanner{margin:0 0 10px;padding:10px 14px;background:#e7f5e9;color:#1b5e20;font-weight:800;font-size:13px;border-radius:10px;cursor:pointer;text-align:center;border:2px solid var(--ink);box-shadow:var(--shadow)}
+@keyframes newflash{0%{background:#fff3c4}100%{background:transparent}}
+.msg.is-new{animation:newflash 3s ease-out}
 .otpbox{margin:12px 14px 0;border:2px dashed var(--accent);border-radius:10px;padding:12px 14px;background:#fff7ef}
 .otpbox .k{font-size:10px;font-weight:800;letter-spacing:.1em;color:var(--accent)}
 .otprow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
@@ -203,6 +206,7 @@ footer a:hover{text-decoration:underline}
       <button id="autoBtn" class="secondary" title="Refresh inbox otomatis tiap 15 detik"></button>
     </div>
     <div class="err" id="inboxErr"></div>
+    <div id="newMailBanner" class="newbanner hide"></div>
     <div id="inboxList"></div>
     <div id="msgDetail" class="hide"></div>
   </section>
@@ -405,6 +409,7 @@ function setAuto(on){
   try{ localStorage.setItem('ztm_auto', on ? '1' : '0'); }catch(e){}
   paintAutoBtn();
 }
+var lastInboxIds = {};
 async function loadInbox(){
   showErr('inboxErr', '');
   var id = document.getElementById('inboxSel').value;
@@ -415,6 +420,30 @@ async function loadInbox(){
   try{
     var d = await api('/addresses/' + id + '/messages');
     var msgs = d.messages || [];
+    msgs.sort(function(a, b){
+      var t = String(b.received_at || '').localeCompare(String(a.received_at || ''));
+      return t !== 0 ? t : (b.id - a.id);
+    });
+    var prev = lastInboxIds[id] || null;
+    var newIds = {};
+    if(prev){
+      var prevSet = {};
+      prev.forEach(function(x){ prevSet[x] = 1; });
+      msgs.forEach(function(m){ if(!prevSet[m.id]) newIds[m.id] = 1; });
+    }
+    lastInboxIds[id] = msgs.map(function(m){ return m.id; });
+    var newCount = Object.keys(newIds).length;
+    var banner = document.getElementById('newMailBanner');
+    if(newCount > 0 && prev){
+      banner.textContent = '📬 ' + newCount + ' email baru masuk \u2014 ketuk untuk lihat';
+      banner.classList.remove('hide');
+      banner.onclick = function(){
+        banner.classList.add('hide');
+        document.getElementById('inboxCard').scrollIntoView();
+      };
+    } else {
+      banner.classList.add('hide');
+    }
     if(msgs.length === 0){
       list.innerHTML = '<div class="empty">Inbox kosong. Belum ada email masuk.</div>';
       return;
@@ -422,7 +451,7 @@ async function loadInbox(){
     list.innerHTML = '';
     msgs.forEach(function(m){
       var div = document.createElement('div');
-      div.className = 'msg' + (m.is_read ? '' : ' is-unread');
+      div.className = 'msg' + (m.is_read ? '' : ' is-unread') + (newIds[m.id] ? ' is-new' : '');
       div.innerHTML = '<div class="top"><span class="s">' + esc(m.sender) + '</span>' +
         '<span class="s">' + esc(m.received_at || '') + '</span></div>' +
         '<div class="t">' + esc(m.subject || '(tanpa subjek)') + '</div>';
@@ -433,6 +462,7 @@ async function loadInbox(){
 }
 async function readMsg(id, el){
   try{
+    document.getElementById('newMailBanner').classList.add('hide');
     var m = await api('/messages/' + id);
     var d = document.getElementById('msgDetail');
     var otpCodes = findOtps(m.body || '');
