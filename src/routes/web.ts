@@ -304,6 +304,14 @@ async function loadAddrs(){
   try{
     var d = await api('/addresses');
     addrCache = d.addresses || [];
+    // Alamat yang ada pesan belum dibaca selalu di paling atas
+    addrCache.sort(function(a, b){
+      var au = (a.unread_count || 0) > 0 ? 1 : 0;
+      var bu = (b.unread_count || 0) > 0 ? 1 : 0;
+      if(au !== bu) return bu - au;
+      if(au) return ((b.unread_count || 0) - (a.unread_count || 0)) || (b.id - a.id);
+      return b.id - a.id;
+    });
     var list = addrCache;
     var sel = document.getElementById('inboxSel');
     var cur = sel.value;
