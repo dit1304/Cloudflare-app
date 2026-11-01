@@ -836,9 +836,12 @@ async function processCommand(
 ): Promise<CommandResponse> {
   console.log("🤖 Processing command:", { telegramUserId, message });
 
-  const parts = message.split(/\s+/);
-  const command = parts[0].toLowerCase();
-  const arg = parts.slice(1).join(" ").trim();
+  // JANGAN split(/\s+/) + join(" "): itu menghancurkan newline di dalam arg
+  // (pesan /broadcast multi-baris jadi satu paragraf panjang).
+  // Pisahkan hanya perintah pertama, sisa pesan dipertahankan apa adanya.
+  const cmdMatch = message.match(/^(\S+)(?:\s+([\s\S]*))?$/);
+  const command = (cmdMatch?.[1] ?? "").toLowerCase();
+  const arg = (cmdMatch?.[2] ?? "").trim();
 
   const isAdmin = telegramUserId === env.ADMIN_USER_ID;
   const userLang = await getUserLanguage(env.DB, telegramUserId);
