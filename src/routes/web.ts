@@ -244,11 +244,31 @@ footer a:hover{text-decoration:underline}
     <tr><td>DELETE</td><td><code>/api/v1/addresses/:id</code></td><td>Hapus alamat</td></tr>
     <tr><td>GET</td><td><code>/api/v1/addresses/:id/messages</code></td><td>Daftar pesan</td></tr>
     <tr><td>GET</td><td><code>/api/v1/messages/:id</code></td><td>Baca pesan lengkap</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/domains</code></td><td>Daftar domain</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/addresses/:id</code></td><td>Detail alamat</td></tr>
+    <tr><td>POST</td><td><code>/api/v1/addresses/:id/read-all</code></td><td>Tandai semua pesan dibaca</td></tr>
     </table>
     </div>
     <p class="muted" style="margin-top:12px">Contoh curl:</p>
     <pre class="curl">curl -H "X-API-Key: tmail_..." \\
   https://temp.zsecret.me/api/v1/addresses</pre>
+  </section>
+
+  <section class="card">
+    <div class="cardhead">
+      <span class="cardicon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span>
+      <h2>Coba API (curl)</h2>
+    </div>
+    <p class="muted">Rakit request, salin perintah curl-nya, atau kirim langsung dari sini. Key yang dipakai adalah key yang tersimpan di browser ini.</p>
+    <div class="row" style="margin-top:10px">
+      <select id="curlEp"></select>
+      <button id="curlSend" class="accent">Kirim</button>
+      <button id="curlCopy" class="secondary">Salin curl</button>
+    </div>
+    <div id="curlParams"></div>
+    <pre class="curl" id="curlOut"></pre>
+    <div class="err" id="curlErr"></div>
+    <pre class="curl hide" id="curlResp"></pre>
   </section>
 </div>
 
@@ -278,6 +298,7 @@ function refreshBadge(){
   else { b.textContent = 'tanpa API key'; b.className = 'badge'; }
   var lo = document.getElementById('mLogout');
   if(lo) lo.style.display = getKey() ? '' : 'none';
+  if(typeof updateCurlOut === 'function') updateCurlOut();
 }
 function logout(){
   setAuto(false);
@@ -608,6 +629,126 @@ document.getElementById('readAllBtn').onclick = async function(){
   btn.disabled = false;
 };
 document.getElementById('autoBtn').onclick = function(){ setAuto(!autoTimer); };
+// ---------- Konsol API (curl) ----------
+var CURL_EPS = [
+  { method: 'GET', path: '/domains', desc: 'Daftar domain', params: [] },
+  { method: 'GET', path: '/addresses', desc: 'Daftar alamat', params: [] },
+  { method: 'POST', path: '/addresses', desc: 'Buat alamat', body: true, params: [
+    { name: 'local_part', ph: 'local_part (kosong = acak)' },
+    { name: 'domain', ph: 'domain (kosong = default)' } ] },
+  { method: 'GET', path: '/addresses/:id', desc: 'Detail alamat', params: [
+    { name: 'id', ph: 'ID alamat' } ] },
+  { method: 'DELETE', path: '/addresses/:id', desc: 'Hapus alamat', params: [
+    { name: 'id', ph: 'ID alamat' } ] },
+  { method: 'GET', path: '/addresses/:id/messages', desc: 'Pesan di alamat', params: [
+    { name: 'id', ph: 'ID alamat' } ] },
+  { method: 'POST', path: '/addresses/:id/read-all', desc: 'Tandai semua dibaca', params: [
+    { name: 'id', ph: 'ID alamat' } ] },
+  { method: 'GET', path: '/messages/:id', desc: 'Baca pesan lengkap', params: [
+    { name: 'id', ph: 'ID pesan' } ] }
+];
+function curlDef(){
+  var sel = document.getElementById('curlEp');
+  return CURL_EPS[parseInt(sel.value, 10) || 0];
+}
+function curlVal(name){
+  var el = document.getElementById('cp_' + name);
+  return el ? el.value.trim() : '';
+}
+function shellQ(v){
+  return "'" + String(v).replace(/'/g, "'\\''") + "'";
+}
+function curlPath(){
+  var def = curlDef();
+  var path = def.path;
+  if(path.indexOf(':id') !== -1) path = path.replace(':id', curlVal('id') || ':id');
+  return path;
+}
+function curlBody(){
+  var def = curlDef();
+  if(!def.body) return null;
+  var obj = {};
+  ['local_part', 'domain'].forEach(function(k){
+    var v = curlVal(k);
+    if(v) obj[k] = v;
+  });
+  return Object.keys(obj).length ? obj : null;
+}
+function buildCurl(){
+  var def = curlDef();
+  var key = getKey() || 'API_KEY_ANDA';
+  var url = window.location.origin + '/api/v1' + curlPath();
+  var lines = ['curl -X ' + def.method + ' \\', '  -H "X-API-Key: ' + key + '" \\'];
+  var body = curlBody();
+  if(body){
+    lines.push('  -H "Content-Type: application/json" \\');
+    lines.push('  -d ' + shellQ(JSON.stringify(body)) + ' \\');
+  }
+  lines.push('  ' + url);
+  return lines.join('\n');
+}
+function renderCurlParams(){
+  var def = curlDef();
+  var box = document.getElementById('curlParams');
+  box.innerHTML = def.params.map(function(pr){
+    return '<div class="row" style="margin-top:8px"><input id="cp_' + pr.name + '" placeholder="' + pr.ph + '" autocapitalize="off" autocomplete="off" spellcheck="false"></div>';
+  }).join('');
+  def.params.forEach(function(pr){
+    document.getElementById('cp_' + pr.name).addEventListener('input', updateCurlOut);
+  });
+  updateCurlOut();
+}
+function updateCurlOut(){
+  var out = document.getElementById('curlOut');
+  if(out) out.textContent = buildCurl();
+}
+(function initCurlConsole(){
+  var sel = document.getElementById('curlEp');
+  sel.innerHTML = CURL_EPS.map(function(d, i){
+    return '<option value="' + i + '">' + d.method + ' ' + d.path + ' — ' + d.desc + '</option>';
+  }).join('');
+  sel.addEventListener('change', renderCurlParams);
+  document.getElementById('curlCopy').onclick = function(){
+    var t = document.getElementById('curlOut').textContent;
+    var btn = document.getElementById('curlCopy');
+    function done(){
+      var old = btn.textContent;
+      btn.textContent = 'Tersalin!';
+      setTimeout(function(){ btn.textContent = old; }, 1500);
+    }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(done, function(){
+        showErr('curlErr', 'Gagal menyalin otomatis, blok curl di atas bisa diseleksi manual.');
+      });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = t; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); done(); }catch(e){
+        showErr('curlErr', 'Gagal menyalin otomatis, blok curl di atas bisa diseleksi manual.');
+      }
+      document.body.removeChild(ta);
+    }
+  };
+  document.getElementById('curlSend').onclick = async function(){
+    if(!getKey()){ showErr('curlErr', 'Isi API key dulu di menu API Key (pojok kanan atas).'); return; }
+    var def = curlDef();
+    var path = curlPath();
+    if(path.indexOf(':id') !== -1){ showErr('curlErr', 'Isi ID dulu.'); return; }
+    showErr('curlErr', '');
+    var respEl = document.getElementById('curlResp');
+    respEl.classList.remove('hide');
+    respEl.textContent = 'Mengirim…';
+    try{
+      var opts = { method: def.method, headers: { 'X-API-Key': getKey() } };
+      var body = curlBody();
+      if(body){ opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+      var r = await fetch(API + path, opts);
+      var txt = await r.text();
+      respEl.textContent = 'HTTP ' + r.status + '\n' + txt;
+    }catch(e){ respEl.textContent = 'Error: ' + e.message; }
+  };
+  renderCurlParams();
+})();
 paintAutoBtn();
 try{ if(localStorage.getItem('ztm_auto') === '1' && getKey()) setAuto(true); }catch(e){}
 document.getElementById('inboxSel').onchange = loadInbox;
