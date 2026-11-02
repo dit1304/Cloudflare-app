@@ -46,6 +46,8 @@ h1{font-size:22px;letter-spacing:-.02em;white-space:nowrap}
 .mi svg{width:17px;height:17px;color:var(--accent)}
 .mi:hover{background:var(--accent-soft)}
 .mi + .mi{border-top:1px solid var(--line)}
+.mi.danger{color:var(--red)}
+.mi.danger svg{color:var(--red)}
 /* ---------- cards ---------- */
 .card{background:var(--card);border:2px solid var(--ink);border-radius:14px;
   padding:18px;margin-bottom:18px;box-shadow:5px 5px 0 rgba(34,27,20,.10)}
@@ -174,6 +176,7 @@ footer a:hover{text-decoration:underline}
     <button class="iconbtn" id="menuBtn" aria-label="Menu"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></button>
     <div class="dropdown hide" id="menuDrop">
       <div class="mi" id="mMails"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>Mails</div>
+      <div class="mi danger" id="mLogout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Keluar</div>
       <div class="mi" id="mApi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>API Key</div>
     </div>
   </div>
@@ -273,6 +276,21 @@ function refreshBadge(){
   var b = document.getElementById('keyBadge');
   if(getKey()){ b.textContent = 'API key tersimpan'; b.className = 'badge on'; }
   else { b.textContent = 'tanpa API key'; b.className = 'badge'; }
+  var lo = document.getElementById('mLogout');
+  if(lo) lo.style.display = getKey() ? '' : 'none';
+}
+function logout(){
+  setAuto(false);
+  setKey('');
+  document.getElementById('keyInput').value = '';
+  refreshBadge();
+  document.getElementById('addrsList').innerHTML =
+    '<div class="empty">Isi API key dulu di menu <b>API Key</b> (pojok kanan atas).</div>';
+  document.getElementById('inboxList').innerHTML = '';
+  document.getElementById('msgDetail').classList.add('hide');
+  document.getElementById('inboxCard').classList.add('hide');
+  document.getElementById('addrCard').classList.remove('hide');
+  showView('api');
 }
 async function api(path, opts){
   var r = await fetch(API + path, Object.assign({ headers: { 'X-API-Key': getKey() } }, opts || {}));
@@ -548,6 +566,7 @@ document.getElementById('backAddrs').onclick = function(){
   loadAddrs();
 };
 document.getElementById('mApi').onclick = function(){ showView('api'); };
+document.getElementById('mLogout').onclick = logout;
 document.addEventListener('click', function(){
   document.getElementById('menuDrop').className = 'dropdown hide';
 });
