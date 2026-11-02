@@ -656,7 +656,7 @@ function curlVal(name){
   return el ? el.value.trim() : '';
 }
 function shellQ(v){
-  return "'" + String(v).replace(/'/g, "'\\''") + "'";
+  return "'" + String(v).replace(/'/g, "'\\\\''") + "'";
 }
 function curlPath(){
   var def = curlDef();
@@ -678,14 +678,14 @@ function buildCurl(){
   var def = curlDef();
   var key = getKey() || 'API_KEY_ANDA';
   var url = window.location.origin + '/api/v1' + curlPath();
-  var lines = ['curl -X ' + def.method + ' \\', '  -H "X-API-Key: ' + key + '" \\'];
+  var lines = ['curl -X ' + def.method + ' \\\\', '  -H "X-API-Key: ' + key + '" \\\\'];
   var body = curlBody();
   if(body){
-    lines.push('  -H "Content-Type: application/json" \\');
-    lines.push('  -d ' + shellQ(JSON.stringify(body)) + ' \\');
+    lines.push('  -H "Content-Type: application/json" \\\\');
+    lines.push('  -d ' + shellQ(JSON.stringify(body)) + ' \\\\');
   }
   lines.push('  ' + url);
-  return lines.join('\n');
+  return lines.join('\\n');
 }
 function renderCurlParams(){
   var def = curlDef();
@@ -744,7 +744,7 @@ function updateCurlOut(){
       if(body){ opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
       var r = await fetch(API + path, opts);
       var txt = await r.text();
-      respEl.textContent = 'HTTP ' + r.status + '\n' + txt;
+      respEl.textContent = 'HTTP ' + r.status + '\\n' + txt;
     }catch(e){ respEl.textContent = 'Error: ' + e.message; }
   };
   renderCurlParams();
